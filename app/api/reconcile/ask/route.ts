@@ -67,9 +67,10 @@ ${context}`
     return NextResponse.json({ answer })
   } catch (err: any) {
     const msg = String(err.message || err)
-    if (msg.includes('GEMINI_API_KEY') || msg.includes('API key')) {
-      return NextResponse.json({ error: 'Falta la llave de Gemini en el servidor.' }, { status: 500 })
+    const low = msg.toLowerCase()
+    if (low.includes('gemini_api_key') || low.includes('api key') || low.includes('unregistered') || low.includes('403')) {
+      return NextResponse.json({ error: 'Falta la llave de Gemini en Vercel. Agrégala como GEMINI_API_KEY en Settings → Environment Variables y vuelve a desplegar.' }, { status: 500 })
     }
-    return NextResponse.json({ error: msg }, { status: 500 })
+    return NextResponse.json({ error: 'No pude responder. Intenta de nuevo.' }, { status: 500 })
   }
 }

@@ -111,6 +111,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ transaction: tx, receipt })
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    const msg = String(err.message || err)
+    const low = msg.toLowerCase()
+    if (low.includes('api key') || low.includes('unregistered') || low.includes('403')) {
+      return NextResponse.json({ error: 'Falta la llave de Gemini en Vercel. Agrégala como GEMINI_API_KEY en Settings → Environment Variables.' }, { status: 500 })
+    }
+    return NextResponse.json({ error: 'No se pudo leer el comprobante.' }, { status: 500 })
   }
 }

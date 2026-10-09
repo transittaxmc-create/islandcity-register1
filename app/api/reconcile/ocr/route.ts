@@ -48,6 +48,36 @@ export async function POST(req: NextRequest) {
       // Si Gemini falla, se guarda el recibo con lo mínimo y Miguel lo completa a mano.
     }
 
+    // --- Deduplicación: no registrar dos veces el mismo comprobante ---
+    // Busca movimientos reales con el mismo monto (±1 centavo) en ±2 días
+    // y nombre parecido al comercio.
+    const d0 = new Date(receipt_date + 'T12:00:00')
+    const minus2 = new Date(d0); minus2.setDate(minus2.getDate() - 2)
+    const plus2 = new Date(d0); plus2.setDate(plus2.getDate() + 2)
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const { data: candidates } = await sb.from('bank_transactions')
+      .select('id,date,detail,debit,category')
+      .gte('date', iso(minus2)).lte('date', iso(plus2))
+      .gte('debit', amount - 0.01).lte('debit', amount + 0.01)
+      .limit(10)
+    const vlow = (vendor || '').toLowerCase()
+    const dup = (candidates || []).find((c: any) => {
+      const dlow = (c.detail || '').toLowerCase()
+      return vlow && (dlow.includes(vlow) || vlow.includes(dlow) || c.detail === 'Comprobante escaneado')
+    })
+    if (dup) {
+      // Ya existe: no se duplica. Se guarda el recibo marcado como duplicado.
+      await sb.from('receipts').insert({
+        vendor, amount, receipt_date, image_url, category,
+        status: 'duplicate', matched_transaction_id: dup.id,
+      })
+      return NextResponse.json({
+        duplicate: true,
+        existing: dup,
+        message: `Ya registraste esto el ${dup.date}: "${dup.detail}" por $${Number(dup.debit).toFixed(2)}. No lo dupliqué.`,
+      })
+    }
+
     const { data: receipt, error: rErr } = await sb.from('receipts').insert({
       vendor, amount, receipt_date, image_url, category, status: 'pending',
     }).select().single()

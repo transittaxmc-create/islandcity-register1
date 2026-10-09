@@ -42,6 +42,12 @@ export default function EstadoBancario() {
   const [ocrBusy, setOcrBusy] = useState(false)
   const [ocrMsg, setOcrMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  // Chat lateral del asistente financiero
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatMsgs, setChatMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatBusy, setChatBusy] = useState(false)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -124,12 +130,55 @@ export default function EstadoBancario() {
       const r = await fetch('/api/reconcile/ocr', { method: 'POST', body: fd })
       const j = await r.json()
       if (j.error) throw new Error(j.error)
-      setOcrMsg(`Comprobante registrado: ${money(j.transaction.debit)} — ${j.transaction.detail}`)
-      load()
+      if (j.duplicate) {
+        setOcrMsg('⚠️ ' + j.message)
+      } else {
+        setOcrMsg(`Comprobante registrado: ${money(j.transaction.debit)} — ${j.transaction.detail}`)
+        load()
+      }
     } catch (e: any) {
       setOcrMsg('No se pudo leer: ' + e.message)
     }
     setOcrBusy(false)
+  }
+
+  // Sugiere la categoría con AI cuando termina de escribir el detalle en + Añadir.
+  async function suggestCategory(detail: string) {
+    if (!detail?.trim()) return
+    try {
+      const r = await fetch('/api/reconcile/categorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ detail }),
+      })
+      const j = await r.json()
+      if (j.category && j.category !== 'Otro') {
+        setNewRow((nr: any) => (nr && nr.category === 'Otro' ? { ...nr, category: j.category } : nr))
+      }
+    } catch { /* sin AI, se queda en Otro */ }
+  }
+
+  // Pregunta al asistente financiero.
+  async function askAI(q: string) {
+    const text = q.trim()
+    if (!text || chatBusy) return
+    const msgs: { role: 'user' | 'ai'; text: string }[] = [...chatMsgs, { role: 'user', text }]
+    setChatMsgs(msgs)
+    setChatInput('')
+    setChatBusy(true)
+    try {
+      const r = await fetch('/api/reconcile/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: text, month }),
+      })
+      const j = await r.json()
+      setChatMsgs([...msgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'sin respuesta')) }])
+    } catch (e: any) {
+      setChatMsgs([...msgs, { role: 'ai', text: 'No pude responder: ' + e.message }])
+    }
+    setChatBusy(false)
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
   /* ---------- celdas editables inline ---------- */
@@ -222,7 +271,9 @@ export default function EstadoBancario() {
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] text-[#17263d]">
-      <div className="mx-auto max-w-6xl px-4 py-6">
+      <div className="flex items-start">
+        <div className="min-w-0 flex-1">
+          <div className="mx-auto max-w-6xl px-4 py-6">
         {/* Encabezado */}
         <div className="mb-1 text-xs text-slate-400">
           <Link href="/" className="hover:underline">Bancos y Cuentas</Link>
@@ -234,12 +285,20 @@ export default function EstadoBancario() {
             <h1 className="text-2xl font-bold">Estado Bancario</h1>
             <p className="text-sm text-slate-500">Libro Diario — movimientos reales y proyecciones del mes</p>
           </div>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setChatOpen((v) => !v)}
+              className={`rounded-xl px-3 py-2 text-sm font-bold ${chatOpen ? 'bg-[#40b9a1] text-[#10243f]' : 'bg-[#10243f] text-white'}`}
+            >
+              💬 Preguntar
+            </button>
+            <input
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+            />
+          </div>
         </div>
 
         {/* KPIs */}
@@ -314,7 +373,7 @@ export default function EstadoBancario() {
                           </select>
                         </td>
                         <td className="px-2 py-2">
-                          <input value={newRow.detail} onChange={(e) => setNewRow({ ...newRow, detail: e.target.value })} placeholder="Detalle…" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
+                          <input value={newRow.detail} onChange={(e) => setNewRow({ ...newRow, detail: e.target.value })} onBlur={(e) => suggestCategory(e.target.value)} placeholder="Detalle…" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
                         </td>
                         <td className="px-2 py-2">
                           <select value={newRow.category} onChange={(e) => setNewRow({ ...newRow, category: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
@@ -406,6 +465,55 @@ export default function EstadoBancario() {
             txtCell={txtCell}
             delRow={delRow}
           />
+        )}
+          </div>
+        </div>
+        {chatOpen && (
+          <aside className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-3xl border-t-2 border-slate-200 bg-white shadow-2xl lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-[370px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div>
+                <h3 className="font-bold">Asistente financiero</h3>
+                <p className="text-[11px] text-slate-400">Pregunta sobre tus números</p>
+              </div>
+              <button onClick={() => setChatOpen(false)} className="rounded-lg bg-slate-100 px-2 py-1 text-sm font-bold text-slate-500" aria-label="Cerrar chat">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {chatMsgs.length === 0 ? (
+                <div>
+                  <p className="mb-2 text-sm text-slate-500">¿En qué te ayudo? Prueba:</p>
+                  {['¿Cuánto gasté en gasolina este mes?', '¿Cuál es mi balance real?', 'Resume mis gastos por categoría'].map((s) => (
+                    <button key={s} onClick={() => askAI(s)} className="mb-2 block w-full rounded-xl bg-slate-50 px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                chatMsgs.map((m, i) => (
+                  <div key={i} className={`mb-3 ${m.role === 'user' ? 'text-right' : ''}`}>
+                    <div className={`inline-block max-w-[90%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line text-left ${m.role === 'user' ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-700'}`}>
+                      {m.text}
+                    </div>
+                  </div>
+                ))
+              )}
+              {chatBusy && <p className="text-xs text-slate-400">Pensando…</p>}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="border-t border-slate-100 p-3">
+              <div className="flex gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') askAI(chatInput) }}
+                  placeholder="Pregunta de finanzas…"
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+                <button onClick={() => askAI(chatInput)} disabled={chatBusy} className="rounded-xl bg-[#40b9a1] px-4 py-2 text-sm font-bold text-[#10243f] disabled:opacity-50" aria-label="Enviar">
+                  ➤
+                </button>
+              </div>
+            </div>
+          </aside>
         )}
       </div>
     </div>

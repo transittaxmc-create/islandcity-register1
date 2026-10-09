@@ -24,23 +24,11 @@ import {
   Trash2,
 } from 'lucide-react'
 
-const rows = [
-  { month: 'Enero', actual: 18420, projected: 20200, balance: 3560, status: 'atención' },
-  { month: 'Febrero', actual: 22180, projected: 21400, balance: 4780, status: 'en línea' },
-  { month: 'Marzo', actual: 19840, projected: 23200, balance: 3420, status: 'atención' },
-  { month: 'Abril', actual: 24600, projected: 24000, balance: 6120, status: 'superado' },
-  { month: 'Mayo', actual: 26840, projected: 25800, balance: 7440, status: 'superado' },
-  { month: 'Junio', actual: 25120, projected: 27100, balance: 6020, status: 'atención' },
-]
+const rows: { month: string; actual: number; projected: number; balance: number; status: string }[] = []
 
 const money = (value: number) => new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
 
-const initialEntries = [
-  { id: 1, date: '06 Jun 2025', description: 'Nómina principal', category: 'Ingresos', account: 'Cuenta corriente', actual: 6840, projected: 6800, type: 'Ingreso' },
-  { id: 2, date: '05 Jun 2025', description: 'Renta oficina', category: 'Operación', account: 'Cuenta corriente', actual: -2200, projected: -2200, type: 'Gasto recurrente' },
-  { id: 3, date: '03 Jun 2025', description: 'Servicios públicos', category: 'Servicios', account: 'Cuenta ahorro', actual: -480, projected: -520, type: 'Gasto recurrente' },
-  { id: 4, date: '01 Jun 2025', description: 'Venta proyecto Atlas', category: 'Ingresos', account: 'Cuenta corriente', actual: 3250, projected: 3000, type: 'Ingreso' },
-]
+const initialEntries: { id: number; date: string; description: string; category: string; account: string; actual: number; projected: number; type: string }[] = []
 
 export default function Page() {
   const [active, setActive] = useState('Resumen')
@@ -85,20 +73,13 @@ export default function Page() {
 }
 
 function FlowPulse() {
-  const points = [
-    { day: '03 Jun', balance: 18420, income: 3250, expense: 920 },
-    { day: '04 Jun', balance: 20750, income: 4100, expense: 1770 },
-    { day: '05 Jun', balance: 18550, income: 0, expense: 2200 },
-    { day: '06 Jun', balance: 24690, income: 6840, expense: 700 },
-    { day: '07 Jun', balance: 23980, income: 0, expense: 710 },
-    { day: '08 Jun', balance: 23270, income: 0, expense: 710 },
-  ]
+  const points: { day: string; balance: number; income: number; expense: number }[] = []
   const max = 28000
-  const lowPoint = points.reduce((low, point) => point.balance < low.balance ? point : low, points[0])
-  const highPoint = points.reduce((high, point) => point.balance > high.balance ? point : high, points[0])
+  const lowPoint = points.length ? points.reduce((low, point) => point.balance < low.balance ? point : low, points[0]) : null
+  const highPoint = points.length ? points.reduce((high, point) => point.balance > high.balance ? point : high, points[0]) : null
   return <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
     <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-lg bg-[#e7f5f1] text-[#147d6b]"><BarChart3 className="size-4" /></span><div><h3 className="font-bold">Pulso del flujo financiero</h3><p className="mt-1 text-xs text-slate-500">Identifica los días fuertes, débiles y los pagos que requieren acción.</p></div></div></div><div className="flex flex-wrap gap-3 text-[11px] font-semibold text-slate-500"><span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#147d6b]" /> Saldo bancario</span><span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#e69b45]" /> Movimiento</span></div></div>
-    <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_245px]"><div><div className="relative flex h-[190px] items-end gap-2 border-b border-slate-200 sm:gap-4">{points.map((point) => <div key={point.day} className="group relative flex h-full flex-1 flex-col justify-end"><div className="absolute inset-x-0 bottom-0 border-t border-dashed border-slate-100" /><div className="relative z-10 flex h-full items-end justify-center gap-1.5"><div className="w-1.5 rounded-full bg-[#147d6b] shadow-[0_0_0_4px_rgba(20,125,107,0.10)]" style={{ height: `${(point.balance / max) * 100}%` }} /><div className="w-1.5 rounded-full bg-[#e69b45]" style={{ height: `${(Math.abs(point.income - point.expense) / 7000) * 100}%`, minHeight: point.income || point.expense ? 8 : 2 }} /></div><div className="pointer-events-none absolute bottom-0 left-1/2 hidden -translate-x-1/2 -translate-y-2 whitespace-nowrap rounded-lg bg-[#10243f] px-2 py-1 text-[10px] font-semibold text-white group-hover:block">Saldo {money(point.balance)}<br />{point.income ? `+${money(point.income)}` : 'Sin ingreso'} · -{money(point.expense)}</div></div>)}</div><div className="flex gap-2 pt-3 sm:gap-4">{points.map((point) => <span key={point.day} className="flex-1 text-center text-[10px] font-medium text-slate-500">{point.day}</span>)}</div></div><div className="rounded-xl bg-[#f8fafc] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Lectura rápida</p><div className="mt-4 flex flex-col gap-4"><div><p className="text-[11px] text-slate-500">Día más fuerte</p><p className="mt-1 text-sm font-bold text-[#147d6b]">{highPoint.day} <span className="font-medium text-slate-600">· {money(highPoint.balance)}</span></p><p className="mt-1 text-[10px] text-slate-500">Ingreso extraordinario detectado</p></div><div><p className="text-[11px] text-slate-500">Día más débil</p><p className="mt-1 text-sm font-bold text-[#b76532]">{lowPoint.day} <span className="font-medium text-slate-600">· {money(lowPoint.balance)}</span></p><p className="mt-1 text-[10px] text-slate-500">Revisar cobertura antes del próximo pago</p></div></div></div></div>
+    <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_245px]"><div><div className="relative flex h-[190px] items-end gap-2 border-b border-slate-200 sm:gap-4">{points.map((point) => <div key={point.day} className="group relative flex h-full flex-1 flex-col justify-end"><div className="absolute inset-x-0 bottom-0 border-t border-dashed border-slate-100" /><div className="relative z-10 flex h-full items-end justify-center gap-1.5"><div className="w-1.5 rounded-full bg-[#147d6b] shadow-[0_0_0_4px_rgba(20,125,107,0.10)]" style={{ height: `${(point.balance / max) * 100}%` }} /><div className="w-1.5 rounded-full bg-[#e69b45]" style={{ height: `${(Math.abs(point.income - point.expense) / 7000) * 100}%`, minHeight: point.income || point.expense ? 8 : 2 }} /></div><div className="pointer-events-none absolute bottom-0 left-1/2 hidden -translate-x-1/2 -translate-y-2 whitespace-nowrap rounded-lg bg-[#10243f] px-2 py-1 text-[10px] font-semibold text-white group-hover:block">Saldo {money(point.balance)}<br />{point.income ? `+${money(point.income)}` : 'Sin ingreso'} · -{money(point.expense)}</div></div>)}</div><div className="flex gap-2 pt-3 sm:gap-4">{points.map((point) => <span key={point.day} className="flex-1 text-center text-[10px] font-medium text-slate-500">{point.day}</span>)}</div></div><div className="rounded-xl bg-[#f8fafc] p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Lectura rápida</p><div className="mt-4 flex flex-col gap-4"><div><p className="text-[11px] text-slate-500">Día más fuerte</p><p className="mt-1 text-sm font-bold text-[#147d6b]">{highPoint ? <>{highPoint.day} <span className="font-medium text-slate-600">· {money(highPoint.balance)}</span></> : '—'}</p><p className="mt-1 text-[10px] text-slate-500">Ingreso extraordinario detectado</p></div><div><p className="text-[11px] text-slate-500">Día más débil</p><p className="mt-1 text-sm font-bold text-[#b76532]">{lowPoint ? <>{lowPoint.day} <span className="font-medium text-slate-600">· {money(lowPoint.balance)}</span></> : '—'}</p><p className="mt-1 text-[10px] text-slate-500">Revisar cobertura antes del próximo pago</p></div></div></div></div>
   </section>
 }
 

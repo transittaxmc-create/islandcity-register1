@@ -45,6 +45,8 @@ export default function EstadoBancario() {
   const fileRef = useRef<HTMLInputElement>(null)
   const csvRef = useRef<HTMLInputElement>(null)
   const [csvMsg, setCsvMsg] = useState('')
+  const [syncMsg, setSyncMsg] = useState('')
+  const [syncing, setSyncing] = useState(false)
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
@@ -172,6 +174,38 @@ export default function EstadoBancario() {
     } catch (e: any) {
       setCsvMsg('No se pudo importar: ' + e.message)
     }
+  }
+
+  // Solicita sincronización con el banco (Plaid). El sistema la procesa en minutos.
+  async function requestSync() {
+    if (syncing) return
+    setSyncing(true)
+    setSyncMsg('Solicitando sincronización…')
+    try {
+      const r = await fetch('/api/reconcile/sync-request', { method: 'POST' })
+      const j = await r.json()
+      if (j.error) throw new Error(j.error)
+      const id = j.id
+      setSyncMsg('Sincronizando con el banco…')
+      // Consulta el estado cada 10 segundos (máx 5 minutos)
+      for (let i = 0; i < 30; i++) {
+        await new Promise((res) => setTimeout(res, 10000))
+        const s = await fetch(`/api/reconcile/sync-request?id=${id}`).then((x) => x.json())
+        if (s.status === 'done') {
+          const res2: any = s.result || {}
+          setSyncMsg(`✓ Sincronizado: ${res2.imported || 0} nuevos · ${res2.duplicates || 0} duplicados`)
+          load()
+          break
+        }
+        if (s.status === 'error') {
+          setSyncMsg('No se pudo sincronizar. Intenta de nuevo.')
+          break
+        }
+      }
+    } catch (e: any) {
+      setSyncMsg('No se pudo solicitar: ' + e.message)
+    }
+    setSyncing(false)
   }
 
   // Sugiere la categoría con AI cuando termina de escribir el detalle en + Añadir.
@@ -464,6 +498,16 @@ export default function EstadoBancario() {
 
           {/* Importar CSV del banco */}
           <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <h2 className="mb-1 font-bold">Banco sincronizado</h2>
+            <p className="mb-3 text-xs text-slate-400">Tus movimientos entran solos cada mañana. Toca para sincronizar ahora.</p>
+            <button
+              onClick={requestSync}
+              disabled={syncing}
+              className="mb-4 w-full rounded-xl bg-[#40b9a1] py-3 text-sm font-bold text-[#10243f] disabled:opacity-50"
+            >
+              {syncing ? 'Sincronizando…' : '🔄 Sincronizar banco ahora'}
+            </button>
+            {syncMsg && <p className="mb-3 text-xs text-slate-500">{syncMsg}</p>}
             <h2 className="mb-1 font-bold">Importar del banco</h2>
             <p className="mb-3 text-xs text-slate-400">Sube el CSV que bajas de tu banco. Los números de cuenta se ocultan: solo entran fecha, detalle y montos. No duplica lo que ya está.</p>
             <input ref={csvRef} type="file" accept=".csv,text/csv" className="hidden"

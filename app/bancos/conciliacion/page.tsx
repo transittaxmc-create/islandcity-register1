@@ -1,0 +1,560 @@
+'use client'
+
+// app/bancos/conciliacion/page.tsx — Estado Bancario (Dual Register).
+// Libro Diario unificado: filas REALES + PROYECTADAS distinguibles.
+// Solo lo real mueve el balance real. Reglas recurrentes generan las filas futuras.
+// "Ver registro completo" abre el mes entero en pantalla completa (overlay, misma página).
+
+import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+
+const CATEGORIES = ['Ingresos', 'Gasolina', 'Peajes E-ZPass', 'Mantenimiento', 'Llantas', 'Seguro comercial', 'Pago del vehículo', 'Comida', 'Otro']
+const FREQUENCIES = ['Un solo pago', 'Diaria', 'Semanal', 'Mensual', 'Anual']
+const ACCOUNTS = ['Cuenta principal']
+
+const money = (v: number) =>
+  new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD' }).format(v || 0)
+
+const todayISO = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const fmtDate = (iso: string) => {
+  const [y, m, dd] = iso.split('-').map(Number)
+  return new Date(y, m - 1, dd).toLocaleDateString('es-US', { day: '2-digit', month: 'short' })
+}
+
+type Tx = {
+  id: string; date: string; bank_account: string; detail: string; category: string;
+  frequency: string; entry_type: string; debit: number; credit: number; daily_balance: number;
+  has_receipt: boolean; receipt_url: string | null; receipt_name: string | null;
+}
+
+export default function EstadoBancario() {
+  const [month, setMonth] = useState(() => todayISO().slice(0, 7))
+  const [transactions, setTransactions] = useState<Tx[]>([])
+  const [projected, setProjected] = useState<Tx[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<{ id: string; field: string } | null>(null)
+  const [showFull, setShowFull] = useState(false)
+  const [newRow, setNewRow] = useState<any>(null)
+  const [ocrBusy, setOcrBusy] = useState(false)
+  const [ocrMsg, setOcrMsg] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await fetch(`/api/reconcile/data?month=${month}`)
+      const j = await r.json()
+      if (j.error) throw new Error(j.error)
+      setTransactions(j.transactions || [])
+      setProjected(j.projected || [])
+    } catch (e: any) {
+      setOcrMsg('Error cargando: ' + e.message)
+    }
+    setLoading(false)
+  }, [month])
+
+  useEffect(() => { load() }, [load])
+
+  const totals = useMemo(() => {
+    let dReal = 0, cReal = 0, gProy = 0, iProy = 0
+    for (const t of transactions) { dReal += Number(t.debit) || 0; cReal += Number(t.credit) || 0 }
+    for (const p of projected) { gProy += Number(p.debit) || 0; iProy += Number(p.credit) || 0 }
+    return { dReal, cReal, gProy, iProy }
+  }, [transactions, projected])
+
+  const realBalance = useMemo(() => {
+    let b = 0
+    for (const t of transactions) b += (Number(t.credit) || 0) - (Number(t.debit) || 0)
+    return b
+  }, [transactions])
+
+  async function saveEdit(id: string, field: string, value: any) {
+    setEditing(null)
+    await fetch('/api/reconcile/data', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, field, value }),
+    })
+    load()
+  }
+
+  async function delRow(id: string) {
+    if (!confirm('¿Borrar esta fila?')) return
+    await fetch(`/api/reconcile/data?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    load()
+  }
+
+  function startAdd() {
+    setNewRow({
+      date: todayISO(), bank_account: ACCOUNTS[0], detail: '', category: 'Otro',
+      frequency: 'Un solo pago', debit: '', credit: '', entry_type: 'real',
+    })
+  }
+
+  async function commitAdd() {
+    if (!newRow) return
+    // Regla aprobada: frecuencia recurrente = fila proyectada (se guarda como regla);
+    // "Un solo pago" = movimiento real.
+    const entry_type = newRow.frequency === 'Un solo pago' ? 'real' : 'proyectado'
+    const payload = {
+      ...newRow,
+      debit: Number(newRow.debit) || 0,
+      credit: Number(newRow.credit) || 0,
+      entry_type,
+    }
+    await fetch('/api/reconcile/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    setNewRow(null)
+    load()
+  }
+
+  async function sendReceiptToOCR(f: File) {
+    setOcrBusy(true)
+    setOcrMsg('Leyendo comprobante…')
+    try {
+      const fd = new FormData()
+      fd.append('file', f)
+      const r = await fetch('/api/reconcile/ocr', { method: 'POST', body: fd })
+      const j = await r.json()
+      if (j.error) throw new Error(j.error)
+      setOcrMsg(`Comprobante registrado: ${money(j.transaction.debit)} — ${j.transaction.detail}`)
+      load()
+    } catch (e: any) {
+      setOcrMsg('No se pudo leer: ' + e.message)
+    }
+    setOcrBusy(false)
+  }
+
+  /* ---------- celdas editables inline ---------- */
+  const txtCell = (id: string, field: string, value: any, opts: { type?: string; right?: boolean; display?: string } = {}) => {
+    const isEd = editing?.id === id && editing?.field === field
+    const cls = `px-2 py-2 text-sm ${opts.right ? 'text-right font-mono' : ''}`
+    if (isEd) {
+      return (
+        <td key={field} className={cls}>
+          <input
+            autoFocus
+            type={opts.type || 'text'}
+            defaultValue={value ?? ''}
+            className="w-full rounded border border-[#40b9a1] bg-white px-1 py-0.5 text-sm"
+            onBlur={(e) => saveEdit(id, field, e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              if (e.key === 'Escape') setEditing(null)
+            }}
+          />
+        </td>
+      )
+    }
+    return (
+      <td key={field} className={cls} onClick={() => setEditing({ id, field })}>
+        <span className="cursor-text rounded px-1 py-0.5 hover:bg-slate-100">
+          {opts.display ?? String(value ?? '')}
+        </span>
+      </td>
+    )
+  }
+
+  const selCell = (id: string, field: string, value: string, options: string[]) => {
+    const isEd = editing?.id === id && editing?.field === field
+    if (isEd) {
+      return (
+        <td key={field} className="px-2 py-2 text-sm">
+          <select
+            autoFocus
+            defaultValue={value}
+            className="w-full rounded border border-[#40b9a1] bg-white px-1 py-0.5 text-sm"
+            onChange={(e) => saveEdit(id, field, e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setEditing(null) }}
+            onBlur={() => setEditing(null)}
+          >
+            {options.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        </td>
+      )
+    }
+    return (
+      <td key={field} className="px-2 py-2 text-sm" onClick={() => setEditing({ id, field })}>
+        <span className="cursor-pointer rounded bg-slate-100 px-2 py-0.5 text-xs font-medium hover:bg-slate-200">
+          {value} ▾
+        </span>
+      </td>
+    )
+  }
+
+  const badge = (kind: 'real' | 'proy') =>
+    kind === 'real' ? (
+      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Real</span>
+    ) : (
+      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">Proyectado</span>
+    )
+
+  const journalRow = (t: Tx, kind: 'real' | 'proy') => (
+    <tr key={t.id} className={`border-t border-slate-100 ${kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
+      {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
+      {selCell(t.id, 'bank_account', t.bank_account, ACCOUNTS)}
+      {txtCell(t.id, 'detail', t.detail)}
+      {selCell(t.id, 'category', t.category, CATEGORIES)}
+      {selCell(t.id, 'frequency', t.frequency, FREQUENCIES)}
+      {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
+      {txtCell(t.id, 'credit', t.credit, { type: 'number', right: true, display: Number(t.credit) ? money(Number(t.credit)) : '' })}
+      <td className="px-2 py-2">{badge(kind)}</td>
+      <td className="px-2 py-2 text-right">
+        <button onClick={() => delRow(t.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Borrar">×</button>
+      </td>
+    </tr>
+  )
+
+  const allRows = useMemo(() => {
+    const r = transactions.map((t) => ({ ...t, _kind: 'real' as const }))
+    const p = projected.map((t) => ({ ...t, _kind: 'proy' as const }))
+    return [...r, ...p].sort((a, b) => a.date.localeCompare(b.date))
+  }, [transactions, projected])
+
+  return (
+    <div className="min-h-screen bg-[#f4f7fb] text-[#17263d]">
+      <div className="mx-auto max-w-6xl px-4 py-6">
+        {/* Encabezado */}
+        <div className="mb-1 text-xs text-slate-400">
+          <Link href="/" className="hover:underline">Bancos y Cuentas</Link>
+          <span className="mx-1">›</span>
+          <span className="font-semibold text-slate-600">Estado Bancario</span>
+        </div>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Estado Bancario</h1>
+            <p className="text-sm text-slate-500">Libro Diario — movimientos reales y proyecciones del mes</p>
+          </div>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+          />
+        </div>
+
+        {/* KPIs */}
+        <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Balance real</p>
+            <p className={`mt-1 text-2xl font-bold font-mono ${realBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{money(realBalance)}</p>
+            <p className="mt-1 text-[11px] text-slate-400">Solo movimientos reales</p>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Ingresos reales</p>
+            <p className="mt-1 text-2xl font-bold font-mono text-emerald-600">{money(totals.cReal)}</p>
+            <p className="mt-1 text-[11px] text-slate-400">{transactions.length} movimientos</p>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Gastos reales</p>
+            <p className="mt-1 text-2xl font-bold font-mono text-red-600">{money(totals.dReal)}</p>
+            <p className="mt-1 text-[11px] text-slate-400">Débito acumulado</p>
+          </div>
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Proyectado neto</p>
+            <p className={`mt-1 text-2xl font-bold font-mono ${totals.iProy - totals.gProy < 0 ? 'text-red-600' : 'text-amber-600'}`}>{money(totals.iProy - totals.gProy)}</p>
+            <p className="mt-1 text-[11px] text-slate-400">{projected.length} filas futuras</p>
+          </div>
+        </div>
+
+        {/* Libro Diario */}
+        <div className="mb-5 overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+            <h2 className="font-bold">Libro Diario</h2>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setShowFull(true)} className="text-xs font-semibold text-[#0f8a73] hover:underline">
+                Ver registro completo
+              </button>
+              <button
+                onClick={startAdd}
+                className="rounded-xl bg-[#40b9a1] px-3 py-1.5 text-sm font-bold text-[#10243f] hover:bg-[#35a48f]"
+              >
+                + Añadir
+              </button>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-2 py-2 font-semibold">Fecha</th>
+                  <th className="px-2 py-2 font-semibold">Cuenta ▾</th>
+                  <th className="px-2 py-2 font-semibold">Detalle</th>
+                  <th className="px-2 py-2 font-semibold">Categoría ▾</th>
+                  <th className="px-2 py-2 font-semibold">Frecuencia ▾</th>
+                  <th className="px-2 py-2 text-right font-semibold">Débito</th>
+                  <th className="px-2 py-2 text-right font-semibold">Crédito</th>
+                  <th className="px-2 py-2 font-semibold">Tipo</th>
+                  <th className="px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Cargando…</td></tr>
+                ) : (
+                  <>
+                    {allRows.map((t) => journalRow(t, t._kind))}
+                    {newRow && (
+                      <tr className="border-t-2 border-[#40b9a1] bg-emerald-50/60">
+                        <td className="px-2 py-2">
+                          <input type="date" value={newRow.date} onChange={(e) => setNewRow({ ...newRow, date: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <select value={newRow.bank_account} onChange={(e) => setNewRow({ ...newRow, bank_account: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
+                            {ACCOUNTS.map((o) => <option key={o}>{o}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-2 py-2">
+                          <input value={newRow.detail} onChange={(e) => setNewRow({ ...newRow, detail: e.target.value })} placeholder="Detalle…" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <select value={newRow.category} onChange={(e) => setNewRow({ ...newRow, category: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
+                            {CATEGORIES.map((o) => <option key={o}>{o}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-2 py-2">
+                          <select value={newRow.frequency} onChange={(e) => setNewRow({ ...newRow, frequency: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
+                            {FREQUENCIES.map((o) => <option key={o}>{o}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-2 py-2">
+                          <input type="number" inputMode="decimal" value={newRow.debit} onChange={(e) => setNewRow({ ...newRow, debit: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-sm" />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input type="number" inputMode="decimal" value={newRow.credit} onChange={(e) => setNewRow({ ...newRow, credit: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-sm" />
+                        </td>
+                        <td className="px-2 py-2">{badge(newRow.frequency === 'Un solo pago' ? 'real' : 'proy')}</td>
+                        <td className="px-2 py-2">
+                          <div className="flex gap-1">
+                            <button onClick={commitAdd} className="rounded-lg bg-[#40b9a1] px-2 py-1 text-xs font-bold text-[#10243f]">✓</button>
+                            <button onClick={() => setNewRow(null)} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500">✕</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {!allRows.length && !newRow && (
+                      <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos este mes. Toca <b>+ Añadir</b> para crear el primero.</td></tr>
+                    )}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400">
+            Toca cualquier celda para editarla — todo se guarda solo. Solo los movimientos <b>Reales</b> mueven el balance real.
+          </p>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-2">
+          {/* Comprobantes OCR */}
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <h2 className="mb-1 font-bold">Comprobantes</h2>
+            <p className="mb-3 text-xs text-slate-400">Tómale foto al recibo: se lee solo y crea el gasto con el comprobante adjunto.</p>
+            <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) sendReceiptToOCR(f); e.target.value = '' }} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={ocrBusy}
+              className="w-full rounded-xl border-2 border-dashed border-slate-200 py-6 text-sm font-semibold text-slate-500 hover:border-[#40b9a1] hover:text-[#0f8a73] disabled:opacity-50"
+            >
+              {ocrBusy ? 'Leyendo…' : '📷 Escanear comprobante'}
+            </button>
+            {ocrMsg && <p className="mt-2 text-xs text-slate-500">{ocrMsg}</p>}
+          </div>
+
+          {/* Proyecciones y recurrentes */}
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <h2 className="mb-1 font-bold">Proyecciones y recurrentes</h2>
+            <p className="mb-3 text-xs text-slate-400">Las filas <span className="font-bold text-amber-600">Proyectado</span> del diario nacen de estas reglas.</p>
+            {projected.length === 0 ? (
+              <p className="py-4 text-center text-sm text-slate-400">Sin proyecciones este mes.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {projected.slice(0, 6).map((p) => (
+                  <li key={p.id} className="flex items-center justify-between py-2 text-sm">
+                    <div>
+                      <p className="font-medium">{p.detail}</p>
+                      <p className="text-[11px] text-slate-400">{fmtDate(p.date)} · {p.frequency}</p>
+                    </div>
+                    <p className={`font-mono font-bold ${Number(p.credit) ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {Number(p.credit) ? '+' : '−'}{money(Number(p.credit) || Number(p.debit))}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-[11px] text-slate-400">Para programar algo (ej. $400 diarios hasta fin de mes): <b>+ Añadir</b> → Frecuencia <b>Diaria</b>.</p>
+          </div>
+        </div>
+
+        {/* ===== Registro Completo: overlay en pantalla completa sobre esta misma página ===== */}
+        {showFull && (
+          <FullRegister
+            month={month}
+            transactions={transactions}
+            projected={projected}
+            onClose={() => setShowFull(false)}
+            txtCell={txtCell}
+            delRow={delRow}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Registro Completo (overlay) ---------- */
+function FullRegister({ month, transactions, projected, onClose, txtCell, delRow }: {
+  month: string
+  transactions: Tx[]
+  projected: Tx[]
+  onClose: () => void
+  txtCell: (id: string, field: string, value: any, opts?: { type?: string; right?: boolean; display?: string }) => ReactNode
+  delRow: (id: string) => void
+}) {
+  const today = todayISO()
+  const monthName = (() => {
+    const [y, m] = month.split('-').map(Number)
+    return new Date(y, m - 1, 1).toLocaleDateString('es-US', { month: 'long', year: 'numeric' })
+  })()
+
+  type FR = {
+    id: string; date: string; detail: string; account: string; kind: 'real' | 'proy'
+    dReal: number; cReal: number; gProy: number; iProy: number; realBal?: number; projBal?: number
+  }
+
+  const { past, future, totGProy, totIProy, finalProj } = useMemo(() => {
+    const rows: FR[] = [
+      ...transactions.map((t) => ({
+        id: t.id, date: t.date, detail: t.detail, account: t.bank_account, kind: 'real' as const,
+        dReal: Number(t.debit) || 0, cReal: Number(t.credit) || 0, gProy: 0, iProy: 0,
+      })),
+      ...projected.map((p) => ({
+        id: p.id, date: p.date, detail: p.detail, account: p.bank_account, kind: 'proy' as const,
+        dReal: 0, cReal: 0, gProy: Number(p.debit) || 0, iProy: Number(p.credit) || 0,
+      })),
+    ].sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'real' ? -1 : 1))
+
+    let rb = 0
+    for (const r of rows) if (r.kind === 'real') { rb += r.cReal - r.dReal; r.realBal = rb }
+    let pb = rb
+    let tg = 0, ti = 0
+    for (const r of rows) {
+      if (r.kind === 'proy') { pb += r.iProy - r.gProy; r.projBal = pb; tg += r.gProy; ti += r.iProy }
+    }
+    return {
+      past: rows.filter((r) => r.date < today),
+      future: rows.filter((r) => r.date >= today),
+      totGProy: tg, totIProy: ti, finalProj: pb,
+    }
+  }, [transactions, projected, today])
+
+  const row = (r: FR) => (
+    <tr key={r.id + r.kind} className={`border-t border-slate-100 ${r.kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
+      {txtCell(r.id, 'date', r.date, { type: 'date', display: fmtDate(r.date) })}
+      {txtCell(r.id, 'detail', r.detail)}
+      <td className="px-2 py-2 text-sm text-slate-500">{r.account}</td>
+      {r.kind === 'real' ? (
+        <>
+          {txtCell(r.id, 'debit', r.dReal, { type: 'number', right: true, display: r.dReal ? money(r.dReal) : '' })}
+          {txtCell(r.id, 'credit', r.cReal, { type: 'number', right: true, display: r.cReal ? money(r.cReal) : '' })}
+          <td className={`px-2 py-2 text-right font-mono text-sm font-bold ${Number(r.realBal) < 0 ? 'text-red-600' : ''}`}>{money(Number(r.realBal))}</td>
+          <td className="px-2 py-2"></td>
+          <td className="px-2 py-2"></td>
+          <td className="px-2 py-2"></td>
+        </>
+      ) : (
+        <>
+          <td className="px-2 py-2"></td>
+          <td className="px-2 py-2"></td>
+          <td className="px-2 py-2"></td>
+          {txtCell(r.id, 'debit', r.gProy, { type: 'number', right: true, display: r.gProy ? money(r.gProy) : '' })}
+          {txtCell(r.id, 'credit', r.iProy, { type: 'number', right: true, display: r.iProy ? money(r.iProy) : '' })}
+          <td className={`px-2 py-2 text-right font-mono text-sm font-bold ${Number(r.projBal) < 0 ? 'text-red-600' : 'text-amber-700'}`}>{money(Number(r.projBal))}</td>
+        </>
+      )}
+      <td className="px-2 py-2">
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${r.kind === 'real' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+          {r.kind === 'real' ? 'Real' : 'Proyectado'}
+        </span>
+      </td>
+      <td className="px-2 py-2 text-right">
+        <button onClick={() => delRow(r.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Borrar">×</button>
+      </td>
+    </tr>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f4f7fb]">
+      <div className="mx-auto max-w-6xl px-4 py-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Registro Completo</h1>
+            <p className="text-sm text-slate-500 capitalize">{monthName} — reales + proyecciones en orden de fecha</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="rounded-xl bg-[#10243f] px-4 py-2 text-sm font-bold text-white">← Volver</button>
+            <button onClick={onClose} className="rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-600" aria-label="Cerrar">✕</button>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
+                  <th className="px-2 py-2 font-semibold">Fecha</th>
+                  <th className="px-2 py-2 font-semibold">Detalle</th>
+                  <th className="px-2 py-2 font-semibold">Cuenta</th>
+                  <th className="px-2 py-2 text-right font-semibold">Débito real</th>
+                  <th className="px-2 py-2 text-right font-semibold">Crédito real</th>
+                  <th className="px-2 py-2 text-right font-semibold">Balance real</th>
+                  <th className="px-2 py-2 text-right font-semibold">Gasto proyectado</th>
+                  <th className="px-2 py-2 text-right font-semibold">Ingreso proyectado</th>
+                  <th className="px-2 py-2 text-right font-semibold">Balance proyectado</th>
+                  <th className="px-2 py-2"></th>
+                  <th className="px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {past.map(row)}
+                <tr className="bg-[#10243f]">
+                  <td colSpan={11} className="px-4 py-1.5 text-center text-xs font-bold tracking-[0.2em] text-white">— HOY —</td>
+                </tr>
+                {future.map(row)}
+                {past.length + future.length === 0 && (
+                  <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos este mes.</td></tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
+                  <td colSpan={3} className="px-2 py-3 text-sm">Totales proyectados</td>
+                  <td className="px-2 py-3"></td>
+                  <td className="px-2 py-3"></td>
+                  <td className="px-2 py-3"></td>
+                  <td className="px-2 py-3 text-right font-mono text-sm text-red-600">{money(totGProy)}</td>
+                  <td className="px-2 py-3 text-right font-mono text-sm text-emerald-600">{money(totIProy)}</td>
+                  <td className={`px-2 py-3 text-right font-mono text-sm ${finalProj < 0 ? 'text-red-600' : 'text-amber-700'}`}>{money(finalProj)}</td>
+                  <td className="px-2 py-3"></td>
+                  <td className="px-2 py-3"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400">
+            Toca cualquier celda para editarla — todo se guarda solo. El balance proyectado parte del balance real actual.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}

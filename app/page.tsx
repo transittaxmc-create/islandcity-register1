@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import {
   ArrowDownLeft,
@@ -59,6 +60,7 @@ export default function Page() {
         <div className="mt-10 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Principal</div>
         <nav className="mt-3 flex flex-col gap-1">
           {[['Resumen', LayoutDashboard], ['Movimientos', ArrowUpRight], ['Proyecciones', BarChart3], ['Bancos y cuentas', CreditCard]].map(([label, Icon]) => <button key={label as string} onClick={() => { setActive(label as string); setMobileNav(false) }} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${active === label ? 'bg-[#1c3d5e] text-white shadow-inner' : 'text-slate-300 hover:bg-white/5'}`}><Icon className="size-[18px]" /><span>{label as string}</span>{label === 'Resumen' && <span className="ml-auto size-2 rounded-full bg-[#40b9a1]" />}</button>)}
+          <Link href="/bancos/conciliacion" onClick={() => setMobileNav(false)} className="flex items-center gap-3 rounded-xl px-3 py-3 pl-11 text-left text-sm font-medium text-slate-300 hover:bg-white/5"><FileText className="size-[18px] text-[#40b9a1]" /><span>Estado Bancario</span></Link>
         </nav>
         <div className="mt-9 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Administración</div>
         <nav className="mt-3 flex flex-col gap-1"><button onClick={() => setActive('Ajustes')} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium ${active === 'Ajustes' ? 'bg-[#1c3d5e] text-white' : 'text-slate-300 hover:bg-white/5'}`}><Settings2 className="size-[18px]" /> Ajustes</button><button className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-300 hover:bg-white/5"><CircleHelp className="size-[18px]" /> Centro de ayuda</button></nav>

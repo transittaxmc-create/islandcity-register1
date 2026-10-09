@@ -47,6 +47,7 @@ export default function EstadoBancario() {
   const [csvMsg, setCsvMsg] = useState('')
   const [syncMsg, setSyncMsg] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [sortNewest, setSortNewest] = useState(true)
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
@@ -250,7 +251,7 @@ export default function EstadoBancario() {
   /* ---------- celdas editables inline ---------- */
   const txtCell = (id: string, field: string, value: any, opts: { type?: string; right?: boolean; display?: string } = {}) => {
     const isEd = editing?.id === id && editing?.field === field
-    const cls = `px-2 py-2 text-sm ${opts.right ? 'text-right font-mono' : ''}`
+    const cls = `px-2 py-2.5 text-sm align-middle ${opts.right ? 'text-right font-mono' : ''}`
     if (isEd) {
       return (
         <td key={field} className={cls}>
@@ -281,7 +282,7 @@ export default function EstadoBancario() {
     const isEd = editing?.id === id && editing?.field === field
     if (isEd) {
       return (
-        <td key={field} className="px-2 py-2 text-sm">
+        <td key={field} className="px-2 py-2.5 text-sm align-middle">
           <select
             autoFocus
             defaultValue={value}
@@ -322,8 +323,8 @@ export default function EstadoBancario() {
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
       {txtCell(t.id, 'credit', t.credit, { type: 'number', right: true, display: Number(t.credit) ? money(Number(t.credit)) : '' })}
-      <td className="px-2 py-2">{badge(kind)}</td>
-      <td className="px-2 py-2 text-right">
+      <td className="px-2 py-2.5 align-middle">{badge(kind)}</td>
+      <td className="px-2 py-2.5 text-right align-middle">
         <button onClick={() => delRow(t.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Borrar">×</button>
       </td>
     </tr>
@@ -332,7 +333,8 @@ export default function EstadoBancario() {
   const allRows = useMemo(() => {
     const r = transactions.map((t) => ({ ...t, _kind: 'real' as const }))
     const p = projected.map((t) => ({ ...t, _kind: 'proy' as const }))
-    return [...r, ...p].sort((a, b) => a.date.localeCompare(b.date))
+    const s = [...r, ...p].sort((a, b) => a.date.localeCompare(b.date))
+    return sortNewest ? s.reverse() : s
   }, [transactions, projected])
 
   return (
@@ -369,33 +371,36 @@ export default function EstadoBancario() {
 
         {/* KPIs */}
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Balance real</p>
-            <p className={`mt-1 text-2xl font-bold font-mono ${realBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{money(realBalance)}</p>
+          <div className="rounded-2xl border-t-4 border-[#10243f] bg-white p-4 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Balance real</p>
+            <p className={`mt-1 font-mono text-[26px] font-bold ${realBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{money(realBalance)}</p>
             <p className="mt-1 text-[11px] text-slate-400">Solo movimientos reales</p>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Ingresos reales</p>
-            <p className="mt-1 text-2xl font-bold font-mono text-emerald-600">{money(totals.cReal)}</p>
+          <div className="rounded-2xl border-t-4 border-emerald-500 bg-white p-4 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Ingresos reales</p>
+            <p className="mt-1 font-mono text-[26px] font-bold text-emerald-600">{money(totals.cReal)}</p>
             <p className="mt-1 text-[11px] text-slate-400">{transactions.length} movimientos</p>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Gastos reales</p>
-            <p className="mt-1 text-2xl font-bold font-mono text-red-600">{money(totals.dReal)}</p>
+          <div className="rounded-2xl border-t-4 border-red-500 bg-white p-4 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Gastos reales</p>
+            <p className="mt-1 font-mono text-[26px] font-bold text-red-600">{money(totals.dReal)}</p>
             <p className="mt-1 text-[11px] text-slate-400">Débito acumulado</p>
           </div>
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Proyectado neto</p>
-            <p className={`mt-1 text-2xl font-bold font-mono ${totals.iProy - totals.gProy < 0 ? 'text-red-600' : 'text-amber-600'}`}>{money(totals.iProy - totals.gProy)}</p>
+          <div className="rounded-2xl border-t-4 border-amber-500 bg-white p-4 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Proyectado neto</p>
+            <p className={`mt-1 font-mono text-[26px] font-bold ${totals.iProy - totals.gProy < 0 ? 'text-red-600' : 'text-amber-600'}`}>{money(totals.iProy - totals.gProy)}</p>
             <p className="mt-1 text-[11px] text-slate-400">{projected.length} filas futuras</p>
           </div>
         </div>
 
         {/* Libro Diario */}
         <div className="mb-5 overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <h2 className="font-bold">Libro Diario</h2>
+          <div className="flex items-center justify-between border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
+            <h2 className="text-[17px] font-bold text-[#10243f]">Libro Diario</h2>
             <div className="flex items-center gap-3">
+              <button onClick={() => setSortNewest((v) => !v)} title={sortNewest ? 'Ver más antiguos primero' : 'Ver más recientes primero'} className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200">
+                {sortNewest ? '↓ Recientes' : '↑ Antiguos'}
+              </button>
               <button onClick={() => setShowFull(true)} className="text-xs font-semibold text-[#0f8a73] hover:underline">
                 Ver registro completo
               </button>
@@ -553,6 +558,7 @@ export default function EstadoBancario() {
             month={month}
             transactions={transactions}
             projected={projected}
+            sortNewest={sortNewest}
             onClose={() => setShowFull(false)}
             txtCell={txtCell}
             delRow={delRow}

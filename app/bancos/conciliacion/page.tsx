@@ -612,13 +612,14 @@ export default function EstadoBancario() {
 }
 
 /* ---------- Registro Completo (overlay) ---------- */
-function FullRegister({ month, transactions, projected, onClose, txtCell, delRow }: {
+function FullRegister({ month, transactions, projected, onClose, txtCell, delRow, sortNewest }: {
   month: string
   transactions: Tx[]
   projected: Tx[]
   onClose: () => void
   txtCell: (id: string, field: string, value: any, opts?: { type?: string; right?: boolean; display?: string }) => ReactNode
   delRow: (id: string) => void
+  sortNewest: boolean
 }) {
   const today = todayISO()
   const monthName = (() => {
@@ -641,7 +642,10 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
         id: p.id, date: p.date, detail: p.detail, account: p.bank_account, kind: 'proy' as const,
         dReal: 0, cReal: 0, gProy: Number(p.debit) || 0, iProy: Number(p.credit) || 0,
       })),
-    ].sort((a, b) => a.date.localeCompare(b.date) || (a.kind === 'real' ? -1 : 1))
+    ].sort((a, b) => {
+      const d = a.date.localeCompare(b.date) || (a.kind === 'real' ? -1 : 1)
+      return sortNewest ? -d : d
+    })
 
     let rb = 0
     for (const r of rows) if (r.kind === 'real') { rb += r.cReal - r.dReal; r.realBal = rb }

@@ -81,6 +81,42 @@ ${txLines || '(sin movimientos)'}`
             required: ['id', 'detalle'],
           },
         },
+        {
+          name: 'cambiar_monto',
+          description: 'Cambia el monto débito o crédito de un movimiento.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              id: { type: 'STRING', description: 'ID del movimiento' },
+              campo: { type: 'STRING', description: '"debit" o "credit"' },
+              monto: { type: 'NUMBER', description: 'Nuevo monto' },
+            },
+            required: ['id', 'campo', 'monto'],
+          },
+        },
+        {
+          name: 'cambiar_fecha',
+          description: 'Cambia la fecha de un movimiento (formato YYYY-MM-DD).',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              id: { type: 'STRING', description: 'ID del movimiento' },
+              fecha: { type: 'STRING', description: 'Nueva fecha YYYY-MM-DD' },
+            },
+            required: ['id', 'fecha'],
+          },
+        },
+        {
+          name: 'eliminar_movimiento',
+          description: 'Elimina un movimiento del libro.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              id: { type: 'STRING', description: 'ID del movimiento' },
+            },
+            required: ['id'],
+          },
+        },
       ],
     }]
     const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash', tools } as any)
@@ -109,6 +145,9 @@ ${context}`
         let desc = ''
         if (name === 'cambiar_categoria') desc = `Cambiar categoría a "${args.categoria}" en ${args.ids.length} movimiento(s)`
         else if (name === 'renombrar_detalle') desc = `Renombrar detalle a "${args.detalle}"`
+        else if (name === 'cambiar_monto') desc = `Cambiar ${args.campo} a $${args.monto}`
+        else if (name === 'cambiar_fecha') desc = `Cambiar fecha a ${args.fecha}`
+        else if (name === 'eliminar_movimiento') desc = `⚠️ Eliminar este movimiento`
         return { action: name, args, desc }
       })
       return NextResponse.json({ pending: proposals })

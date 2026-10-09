@@ -43,6 +43,8 @@ export default function EstadoBancario() {
   const [ocrBusy, setOcrBusy] = useState(false)
   const [ocrMsg, setOcrMsg] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const csvRef = useRef<HTMLInputElement>(null)
+  const [csvMsg, setCsvMsg] = useState('')
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
@@ -150,6 +152,26 @@ export default function EstadoBancario() {
       setOcrMsg('No se pudo leer: ' + e.message)
     }
     setOcrBusy(false)
+  }
+
+  // Importa el CSV del banco: oculta números de cuenta, no duplica.
+  async function sendCSVToImport(f: File) {
+    setCsvMsg('Importando…')
+    try {
+      const fd = new FormData()
+      fd.append('file', f)
+      const r = await fetch('/api/reconcile/import', { method: 'POST', body: fd })
+      const j = await r.json()
+      if (j.error) throw new Error(j.error)
+      const parts = []
+      if (j.imported) parts.push(`${j.imported} importados`)
+      if (j.duplicates) parts.push(`${j.duplicates} duplicados omitidos`)
+      if (j.skipped) parts.push(`${j.skipped} omitidos`)
+      setCsvMsg(parts.length ? '✓ ' + parts.join(' · ') : 'Sin movimientos nuevos.')
+      load()
+    } catch (e: any) {
+      setCsvMsg('No se pudo importar: ' + e.message)
+    }
   }
 
   // Sugiere la categoría con AI cuando termina de escribir el detalle en + Añadir.
@@ -438,6 +460,21 @@ export default function EstadoBancario() {
               {ocrBusy ? 'Leyendo…' : '📷 Escanear comprobante'}
             </button>
             {ocrMsg && <p className="mt-2 text-xs text-slate-500">{ocrMsg}</p>}
+          </div>
+
+          {/* Importar CSV del banco */}
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <h2 className="mb-1 font-bold">Importar del banco</h2>
+            <p className="mb-3 text-xs text-slate-400">Sube el CSV que bajas de tu banco. Los números de cuenta se ocultan: solo entran fecha, detalle y montos. No duplica lo que ya está.</p>
+            <input ref={csvRef} type="file" accept=".csv,text/csv" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) sendCSVToImport(f); e.target.value = '' }} />
+            <button
+              onClick={() => csvRef.current?.click()}
+              className="w-full rounded-xl border-2 border-dashed border-slate-200 py-6 text-sm font-semibold text-slate-500 hover:border-[#40b9a1] hover:text-[#0f8a73]"
+            >
+              📤 Subir CSV del banco
+            </button>
+            {csvMsg && <p className="mt-2 text-xs text-slate-500">{csvMsg}</p>}
           </div>
 
           {/* Proyecciones y recurrentes */}

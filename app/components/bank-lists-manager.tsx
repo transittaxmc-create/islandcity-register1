@@ -62,6 +62,16 @@ export default function BankListsManager() {
         <div key={s.key} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="font-bold">{s.title}</h3>
           <p className="mt-1 text-xs text-slate-500">{s.desc}. Lo que añadas aquí aparece en los menús del Libro Diario.</p>
+          {s.key === 'accounts' && (
+            <a
+              href="https://agent.meta.ai/connectors/plaid/accounts/link"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 block w-full rounded-xl bg-[#40b9a1] py-2.5 text-center text-sm font-bold text-[#10243f] hover:bg-[#35a48f]"
+            >
+              ＋ Añadir cuenta de banco (Plaid)
+            </a>
+          )}
           <div className="mt-4 flex gap-2">
             <input
               value={inputs[s.key]}

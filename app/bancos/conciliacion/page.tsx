@@ -507,6 +507,7 @@ export default function EstadoBancario() {
             >
               {syncing ? 'Sincronizando…' : '🔄 Sincronizar banco ahora'}
             </button>
+
             {syncMsg && <p className="mb-3 text-xs text-slate-500">{syncMsg}</p>}
             <h2 className="mb-1 font-bold">Importar del banco</h2>
             <p className="mb-3 text-xs text-slate-400">Sube el CSV que bajas de tu banco. Los números de cuenta se ocultan: solo entran fecha, detalle y montos. No duplica lo que ya está.</p>

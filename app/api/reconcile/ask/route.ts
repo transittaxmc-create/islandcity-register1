@@ -93,7 +93,7 @@ REGLAS DE FORMATO (obligatorias, sin excepción):
 - PROHIBIDO escribir párrafos largos o más de 5 líneas en total.
 - Si los datos no alcanzan para responder, dilo en una sola línea y sugiere qué dato falta.
 - TIENES el detalle individual de cada movimiento arriba: úsalo para listar, filtrar por nombre/categoría y sumar al centavo.
-- PUEDES MODIFICAR: si el dueño pide cambiar una categoría o renombrar un detalle, usa las funciones cambiar_categoria o renombrar_detalle con los id correctos.
+- PUEDES PROPONER CAMBIOS: si el dueño pide cambiar una categoría o renombrar un detalle, usa las funciones cambiar_categoria o renombrar_detalle con los id correctos. NUNCA ejecutes sin su aprobación: el sistema le pedirá que confirme.
 
 DATOS REALES DEL NEGOCIO:
 ${context}`
@@ -103,18 +103,15 @@ ${context}`
     const parts = (cand?.content as any)?.parts || []
     const fns = parts.filter((p: any) => p.functionCall)
     if (fns.length) {
-      const results: string[] = []
-      for (const f of fns) {
+      // NO ejecuta: devuelve la propuesta para que Miguel la apruebe
+      const proposals = fns.map((f: any) => {
         const { name, args } = f.functionCall
-        if (name === 'cambiar_categoria') {
-          const { error, count } = await sb.from('bank_transactions').update({ category: args.categoria }).in('id', args.ids)
-          results.push(error ? `Error al cambiar categoría: ${error.message}` : `Categoría cambiada a "${args.categoria}" en ${count ?? args.ids.length} movimiento(s).`)
-        } else if (name === 'renombrar_detalle') {
-          const { error } = await sb.from('bank_transactions').update({ detail: args.detalle }).eq('id', args.id)
-          results.push(error ? `Error al renombrar: ${error.message}` : `Detalle cambiado a "${args.detalle}".`)
-        }
-      }
-      return NextResponse.json({ answer: results.join('\n') })
+        let desc = ''
+        if (name === 'cambiar_categoria') desc = `Cambiar categoría a "${args.categoria}" en ${args.ids.length} movimiento(s)`
+        else if (name === 'renombrar_detalle') desc = `Renombrar detalle a "${args.detalle}"`
+        return { action: name, args, desc }
+      })
+      return NextResponse.json({ pending: proposals })
     }
     const answer = res.response.text().trim()
     return NextResponse.json({ answer })

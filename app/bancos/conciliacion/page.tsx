@@ -61,6 +61,8 @@ function shortDetail(detail: string): string {
   return d.replace(/\s+/g, ' ').slice(0, 40)
 }
 
+type ChatMsg = { role: 'user' | 'ai'; text: string; pending?: any[] }
+
 export default function EstadoBancario() {
   const [lists, setLists] = useState<{ accounts: string[]; categories: string[] }>({ accounts: FALLBACK_ACCOUNTS, categories: FALLBACK_CATEGORIES })
   const [month, setMonth] = useState(() => todayISO().slice(0, 7))
@@ -81,7 +83,7 @@ export default function EstadoBancario() {
   const [search, setSearch] = useState('')
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
-  const [chatMsgs, setChatMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
+  const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -260,7 +262,7 @@ export default function EstadoBancario() {
   async function askAI(q: string) {
     const text = q.trim()
     if (!text || chatBusy) return
-    const msgs: { role: 'user' | 'ai'; text: string }[] = [...chatMsgs, { role: 'user', text }]
+    const msgs: ChatMsg[] = [...chatMsgs, { role: 'user', text }]
     setChatMsgs(msgs)
     setChatInput('')
     setChatBusy(true)
@@ -271,9 +273,32 @@ export default function EstadoBancario() {
         body: JSON.stringify({ question: text, month }),
       })
       const j = await r.json()
-      setChatMsgs([...msgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'sin respuesta')) }])
+      if (j.pending?.length) {
+        setChatMsgs([...msgs, { role: 'ai', text: '¿Apruebas este cambio?', pending: j.pending } as ChatMsg])
+      } else {
+        setChatMsgs([...msgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'sin respuesta')) }])
+      }
     } catch (e: any) {
       setChatMsgs([...msgs, { role: 'ai', text: 'No pude responder: ' + e.message }])
+    }
+    setChatBusy(false)
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+  }
+
+  // Aprueba y ejecuta un cambio propuesto.
+  async function approveChange(pending: any[]) {
+    setChatBusy(true)
+    try {
+      const r = await fetch('/api/reconcile/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proposals: pending }),
+      })
+      const j = await r.json()
+      setChatMsgs([...chatMsgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'sin respuesta')) }])
+      load() // recarga los datos
+    } catch (e: any) {
+      setChatMsgs([...chatMsgs, { role: 'ai', text: 'No pude aplicar: ' + e.message }])
     }
     setChatBusy(false)
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
@@ -638,6 +663,27 @@ export default function EstadoBancario() {
                   <div key={i} className={`mb-3 ${m.role === 'user' ? 'text-right' : ''}`}>
                     <div className={`inline-block max-w-[90%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line text-left ${m.role === 'user' ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-700'}`}>
                       {m.text}
+                      {m.pending?.length > 0 && (
+                        <div className="mt-2 border-t border-slate-200 pt-2">
+                          {m.pending.map((p: any, j: number) => (
+                            <p key={j} className="text-xs font-semibold text-slate-600">• {p.desc}</p>
+                          ))}
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              onClick={() => { approveChange(m.pending!); setChatMsgs(chatMsgs.filter((_, k) => k !== i)) }}
+                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
+                            >
+                              ✅ Aprobar
+                            </button>
+                            <button
+                              onClick={() => setChatMsgs(chatMsgs.filter((_, k) => k !== i))}
+                              className="rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))

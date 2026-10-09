@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     let vendor = '', amount = 0, receipt_date = new Date().toISOString().slice(0, 10), category = 'Otro'
     try {
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+      const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' })
       const base64 = buf.toString('base64')
       const prompt = `Lee este comprobante o factura y devuelve SOLO un JSON válido con estas claves, sin texto extra:
 {"vendor": "nombre del comercio o proveedor", "amount": 0.00, "date": "YYYY-MM-DD", "category": "una de: Gasolina, Peajes E-ZPass, Mantenimiento, Llantas, Seguro comercial, Pago del vehículo, Comida, Otro"}`

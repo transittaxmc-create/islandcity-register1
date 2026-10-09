@@ -1,47 +1,77 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  BarChart3,
+  Bell,
+  ChevronDown,
+  CircleHelp,
+  CreditCard,
+  FileText,
+  LayoutDashboard,
+  Menu,
+  Plus,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Wallet,
+  X,
+} from 'lucide-react'
+
+const rows = [
+  { month: 'Enero', actual: 18420, projected: 20200, balance: 3560, status: 'atención' },
+  { month: 'Febrero', actual: 22180, projected: 21400, balance: 4780, status: 'en línea' },
+  { month: 'Marzo', actual: 19840, projected: 23200, balance: 3420, status: 'atención' },
+  { month: 'Abril', actual: 24600, projected: 24000, balance: 6120, status: 'superado' },
+  { month: 'Mayo', actual: 26840, projected: 25800, balance: 7440, status: 'superado' },
+  { month: 'Junio', actual: 25120, projected: 27100, balance: 6020, status: 'atención' },
+]
+
+const money = (value: number) => new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
+
 export default function Page() {
+  const [active, setActive] = useState('Resumen')
+  const [mobileNav, setMobileNav] = useState(false)
+  const [period, setPeriod] = useState('Últimos 6 meses')
+  const [showForm, setShowForm] = useState(false)
+  const [type, setType] = useState<'ingreso' | 'gasto'>('ingreso')
+  const totalActual = useMemo(() => rows.reduce((sum, row) => sum + row.actual, 0), [])
+  const totalProjected = useMemo(() => rows.reduce((sum, row) => sum + row.projected, 0), [])
+
   return (
-    <main
-      style={{
-        colorScheme: 'light dark',
-        position: 'relative',
-        display: 'flex',
-        minHeight: '100vh',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'light-dark(#fff, #000)',
-        color: 'light-dark(#000, #fff)',
-      }}
-    >
-      <svg
-        aria-hidden="true"
-        style={{ width: 80, height: 80 }}
-        width={80}
-        height={80}
-        fill="none"
-        viewBox="0 0 20 20"
-        xmlns="http://www.w3.org/2000/svg"
-        stroke="currentColor"
-        strokeWidth="0.5"
-      >
-        <path
-          d="M14.2 14.2H17V6.9375C17 4.76288 15.2371 3 13.0625 3H5.8V5.8M14.2 14.2V7.79063L7.79062 14.2H14.2ZM14.2 14.2V17H6.9375C4.76288 17 3 15.2371 3 13.0625V5.8H5.8M5.8 5.8V12.2313L12.2313 5.8H5.8Z"
-          strokeLinejoin="round"
-        />
-      </svg>
-      <p
-        style={{
-          position: 'absolute',
-          left: '50%',
-          top: 'calc(50% + 56px)',
-          transform: 'translateX(-50%)',
-          whiteSpace: 'nowrap',
-          fontSize: '14px',
-          fontWeight: 500,
-          color: 'light-dark(#71717a, #a1a1aa)',
-        }}
-      >
-        Your v0 generation will show here.
-      </p>
-    </main>
+    <div className="min-h-screen bg-[#f4f7fb] text-[#17263d]">
+      <aside className={`fixed inset-y-0 left-0 z-40 flex w-[250px] flex-col bg-[#10243f] px-4 py-5 text-white transition-transform lg:translate-x-0 ${mobileNav ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex items-center justify-between px-3">
+          <div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-[#40b9a1] text-[#10243f]"><BarChart3 /></div><div><p className="text-[15px] font-bold tracking-wide">Dual Register</p><p className="text-[10px] text-slate-300">Control financiero</p></div></div>
+          <button className="lg:hidden" onClick={() => setMobileNav(false)} aria-label="Cerrar menú"><X /></button>
+        </div>
+        <div className="mt-10 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Principal</div>
+        <nav className="mt-3 flex flex-col gap-1">
+          {[['Resumen', LayoutDashboard], ['Movimientos', ArrowUpRight], ['Proyecciones', BarChart3], ['Bancos y cuentas', CreditCard]].map(([label, Icon]) => <button key={label as string} onClick={() => { setActive(label as string); setMobileNav(false) }} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${active === label ? 'bg-[#1c3d5e] text-white shadow-inner' : 'text-slate-300 hover:bg-white/5'}`}><Icon className="size-[18px]" /><span>{label as string}</span>{label === 'Resumen' && <span className="ml-auto size-2 rounded-full bg-[#40b9a1]" />}</button>)}
+        </nav>
+        <div className="mt-9 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Administración</div>
+        <nav className="mt-3 flex flex-col gap-1"><button onClick={() => setActive('Ajustes')} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium ${active === 'Ajustes' ? 'bg-[#1c3d5e] text-white' : 'text-slate-300 hover:bg-white/5'}`}><Settings2 className="size-[18px]" /> Ajustes</button><button className="flex items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-300 hover:bg-white/5"><CircleHelp className="size-[18px]" /> Centro de ayuda</button></nav>
+        <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-center gap-2 text-xs font-semibold"><ShieldCheck className="size-4 text-[#40b9a1]" /> Datos protegidos</div><p className="mt-2 text-[11px] leading-4 text-slate-400">Tu información financiera se mantiene segura y privada.</p></div>
+      </aside>
+      {mobileNav && <button className="fixed inset-0 z-30 bg-[#10243f]/40 lg:hidden" onClick={() => setMobileNav(false)} aria-label="Cerrar navegación" />}
+      <main className="lg:pl-[250px]">
+        <header className="flex h-[72px] items-center justify-between border-b border-[#e2e8f0] bg-white px-5 sm:px-8"><div className="flex items-center gap-3"><button className="lg:hidden" onClick={() => setMobileNav(true)} aria-label="Abrir menú"><Menu /></button><div><p className="text-xs font-medium text-slate-500">Mi espacio financiero</p><h1 className="text-lg font-bold">Hola, Alejandro</h1></div></div><div className="flex items-center gap-3"><button className="relative rounded-xl p-2.5 text-slate-500 hover:bg-slate-100" aria-label="Notificaciones"><Bell className="size-5" /><span className="absolute right-2 top-2 size-1.5 rounded-full bg-[#e69b45]" /></button><div className="hidden h-8 w-px bg-slate-200 sm:block" /><div className="flex items-center gap-2"><div className="grid size-9 place-items-center rounded-full bg-[#d9eee9] text-sm font-bold text-[#167b6a]">AM</div><div className="hidden sm:block"><p className="text-xs font-bold">Alejandro M.</p><p className="text-[10px] text-slate-500">Administrador</p></div><ChevronDown className="hidden size-4 text-slate-400 sm:block" /></div></div></header>
+        <div className="mx-auto max-w-[1440px] px-5 py-7 sm:px-8 lg:px-10">
+          {active === 'Ajustes' ? <SettingsPanel /> : <>
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[#167b6a]"><span className="size-2 rounded-full bg-[#40b9a1]" /> Vista general</div><h2 className="text-[28px] font-bold tracking-tight sm:text-[32px]">Resumen financiero</h2><p className="mt-1 text-sm text-slate-500">Visualiza el comportamiento real de tus finanzas frente a lo proyectado.</p></div><div className="flex gap-2"><button className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 shadow-sm"><span>{period}</span><ChevronDown className="size-4" /></button><button onClick={() => setShowForm(true)} className="flex items-center gap-2 rounded-xl bg-[#147d6b] px-4 py-2.5 text-xs font-bold text-white shadow-sm shadow-[#147d6b]/20 hover:bg-[#106b5c]"><Plus className="size-4" /> Registrar movimiento</button></div></div>
+            <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Saldo disponible" value="$18,420" detail="+8.4% vs. mes anterior" icon={Wallet} positive /><Metric label="Ingresos del mes" value="$6,840" detail="12.4% sobre proyección" icon={ArrowDownLeft} positive /><Metric label="Gastos del mes" value="$4,260" detail="6.2% menos que el mes anterior" icon={ArrowUpRight} positive={false} /><Metric label="Flujo neto" value="+$2,580" detail="Salud financiera estable" icon={BarChart3} positive /> </section>
+            <section className="mt-6 grid gap-6 xl:grid-cols-[1.55fr_1fr]"><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><h3 className="font-bold">Flujo real vs. proyección</h3><p className="mt-1 text-xs text-slate-500">Compara tus ingresos y gastos para anticiparte a decisiones.</p></div><div className="flex items-center gap-4 text-[11px] font-semibold"><span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#147d6b]" /> Real</span><span className="flex items-center gap-1.5 text-slate-500"><i className="size-2 rounded-full bg-[#b8c7d8]" /> Proyección</span></div></div><div className="mt-8 flex h-[210px] items-end gap-2 border-b border-slate-200 px-1 sm:gap-5">{rows.map((row) => <div key={row.month} className="flex h-full flex-1 items-end justify-center gap-1.5 sm:gap-2"><div className="group relative w-[45%] rounded-t-md bg-[#147d6b] transition-all hover:bg-[#0f6557]" style={{ height: `${(row.actual / 30000) * 100}%` }}><span className="absolute -top-6 left-1/2 hidden -translate-x-1/2 whitespace-nowrap text-[10px] font-bold group-hover:block">{money(row.actual)}</span></div><div className="w-[45%] rounded-t-md bg-[#c8d4e1]" style={{ height: `${(row.projected / 30000) * 100}%` }} /></div>)}</div><div className="flex gap-2 px-1 pt-3 sm:gap-5">{rows.map((row) => <span key={row.month} className="flex-1 text-center text-[10px] font-medium text-slate-500">{row.month.slice(0, 3)}</span>)}</div><div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-100 pt-4 text-xs text-slate-500"><span>Total real <strong className="ml-1 text-slate-800">{money(totalActual)}</strong></span><span>Total proyectado <strong className="ml-1 text-slate-800">{money(totalProjected)}</strong></span><span className="font-semibold text-[#147d6b]">Variación +{money(totalActual - totalProjected)}</span></div></div><div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"><div className="flex items-start justify-between"><div><h3 className="font-bold">Distribución del saldo</h3><p className="mt-1 text-xs text-slate-500">Dónde está tu dinero hoy</p></div><button className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><SlidersHorizontal className="size-4" /></button></div><div className="mx-auto mt-7 grid size-[178px] place-items-center rounded-full" style={{ background: 'conic-gradient(#147d6b 0 43%, #56b8a5 43% 71%, #e4a24f 71% 86%, #dce5ee 86% 100%)' }}><div className="grid size-[118px] place-items-center rounded-full bg-white text-center"><span className="text-[10px] text-slate-400">Total</span><strong className="text-xl">$42,860</strong></div></div><div className="mt-7 grid grid-cols-2 gap-4">{[['Cuenta principal','$18,420','#147d6b'],['Cuenta ahorro','$12,015','#56b8a5'],['Inversiones','$6,430','#e4a24f'],['Otros','$5,995','#dce5ee']].map(([label, value, color]) => <div key={label} className="flex items-center gap-2"><i className="size-2.5 rounded-full" style={{ background: color }} /><div><p className="text-[11px] text-slate-500">{label}</p><p className="text-sm font-bold">{value}</p></div></div>)}</div></div></section>
+            <section className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:p-6"><div><h3 className="font-bold">Detalle del flujo financiero</h3><p className="mt-1 text-xs text-slate-500">Seguimiento mensual: comportamiento real frente a proyecciones.</p></div><button className="flex items-center gap-2 self-start rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">Ver reporte completo <ArrowUpRight className="size-3.5" /></button></div><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-[#f8fafc] text-[10px] uppercase tracking-wider text-slate-500"><tr><th className="px-6 py-3 font-bold">Periodo</th><th className="px-6 py-3 font-bold">Flujo real</th><th className="px-6 py-3 font-bold">Proyección</th><th className="px-6 py-3 font-bold">Saldo acumulado</th><th className="px-6 py-3 font-bold">Estado</th></tr></thead><tbody className="divide-y divide-slate-100">{rows.map((row) => <tr key={row.month} className="transition hover:bg-slate-50"><td className="px-6 py-4 font-semibold">{row.month} 2025</td><td className="px-6 py-4 font-semibold text-[#147d6b]">{money(row.actual)}</td><td className="px-6 py-4 text-slate-600">{money(row.projected)}</td><td className="px-6 py-4 font-semibold">{money(row.balance)}</td><td className="px-6 py-4"><span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${row.status === 'superado' ? 'bg-[#e3f5ef] text-[#167b6a]' : row.status === 'en línea' ? 'bg-[#e9f0f8] text-[#53708e]' : 'bg-[#fff2dd] text-[#a36a1b]'}`}>{row.status}</span></td></tr>)}</tbody></table></div></section>
+          </>}
+        </div>
+      </main>
+      {showForm && <div className="fixed inset-0 z-50 grid place-items-center bg-[#10243f]/40 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-start justify-between"><div><h2 className="text-xl font-bold">Registrar movimiento</h2><p className="mt-1 text-xs text-slate-500">Añade un ingreso o gasto a tu flujo.</p></div><button onClick={() => setShowForm(false)} aria-label="Cerrar"><X className="text-slate-400" /></button></div><div className="mt-6 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1"><button onClick={() => setType('ingreso')} className={`rounded-lg py-2 text-sm font-semibold ${type === 'ingreso' ? 'bg-white text-[#147d6b] shadow-sm' : 'text-slate-500'}`}>Ingreso</button><button onClick={() => setType('gasto')} className={`rounded-lg py-2 text-sm font-semibold ${type === 'gasto' ? 'bg-white text-[#c87935] shadow-sm' : 'text-slate-500'}`}>Gasto</button></div><div className="mt-5 flex flex-col gap-4"><label className="text-xs font-bold text-slate-600">Descripción<input className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-[#147d6b]" placeholder={type === 'ingreso' ? 'Ej. Cobro de cliente' : 'Ej. Pago de proveedor'} /></label><label className="text-xs font-bold text-slate-600">Monto<input type="number" className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-[#147d6b]" placeholder="$ 0.00" /></label><label className="text-xs font-bold text-slate-600">Cuenta<select className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-[#147d6b]"><option>Cuenta principal</option><option>Cuenta ahorro</option><option>Inversiones</option></select></label></div><button onClick={() => setShowForm(false)} className="mt-6 w-full rounded-xl bg-[#147d6b] py-3 text-sm font-bold text-white">Guardar movimiento</button></div></div>}
+    </div>
   )
 }
+
+function Metric({ label, value, detail, icon: Icon, positive }: { label: string; value: string; detail: string; icon: typeof Wallet; positive: boolean }) { return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-500">{label}</span><div className="grid size-9 place-items-center rounded-xl bg-[#e7f5f1] text-[#147d6b]"><Icon className="size-[18px]" /></div></div><p className="mt-4 text-[25px] font-bold tracking-tight">{value}</p><p className={`mt-1 text-[11px] font-semibold ${positive ? 'text-[#147d6b]' : 'text-slate-500'}`}>{detail}</p></div> }
+
+function SettingsPanel() { return <div className="max-w-4xl"><div className="mb-7 flex items-center gap-2 text-xs font-semibold text-[#167b6a]"><Settings2 className="size-4" /> Configuración del espacio</div><h2 className="text-[30px] font-bold tracking-tight">Ajustes</h2><p className="mt-1 text-sm text-slate-500">Personaliza cómo se organizan, presentan y proyectan tus finanzas.</p><div className="mt-7 grid gap-5 md:grid-cols-[210px_1fr]"><div className="flex gap-1 overflow-auto rounded-2xl border border-slate-200 bg-white p-2 md:flex-col md:self-start"><button className="whitespace-nowrap rounded-xl bg-[#e7f5f1] px-3 py-2.5 text-left text-xs font-bold text-[#147d6b]">Preferencias generales</button><button className="whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-slate-500 hover:bg-slate-50">Cuentas y bancos</button><button className="whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-slate-500 hover:bg-slate-50">Proyecciones</button><button className="whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-slate-500 hover:bg-slate-50">Notificaciones</button></div><div className="flex flex-col gap-5"><div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-bold">Preferencias de presentación</h3><p className="mt-1 text-xs text-slate-500">Controla el formato que usará Dual Register para mostrar la información.</p><div className="mt-6 flex flex-col gap-5"><div className="flex items-center justify-between gap-4"><div><p className="text-sm font-semibold">Mostrar variación contra proyección</p><p className="mt-1 text-xs text-slate-500">Ver diferencias reales en cada tabla y gráfico.</p></div><div className="relative h-6 w-11 rounded-full bg-[#147d6b]"><div className="absolute right-1 top-1 size-4 rounded-full bg-white shadow" /></div></div><div className="h-px bg-slate-100" /><div className="flex items-center justify-between gap-4"><div><p className="text-sm font-semibold">Resumen ejecutivo</p><p className="mt-1 text-xs text-slate-500">Prioriza métricas, alertas y próximos movimientos.</p></div><div className="relative h-6 w-11 rounded-full bg-[#147d6b]"><div className="absolute right-1 top-1 size-4 rounded-full bg-white shadow" /></div></div></div></div><div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h3 className="font-bold">Periodo de análisis</h3><p className="mt-1 text-xs text-slate-500">Define el periodo predeterminado de tus reportes.</p><select className="mt-5 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Últimos 6 meses</option><option>Últimos 12 meses</option><option>Año actual</option></select></div></div></div></div> }

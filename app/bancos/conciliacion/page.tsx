@@ -251,7 +251,7 @@ export default function EstadoBancario() {
   /* ---------- celdas editables inline ---------- */
   const txtCell = (id: string, field: string, value: any, opts: { type?: string; right?: boolean; display?: string } = {}) => {
     const isEd = editing?.id === id && editing?.field === field
-    const cls = `px-2 py-2.5 text-sm align-middle ${opts.right ? 'text-right font-mono' : ''}`
+    const cls = `px-2 py-2 text-sm align-middle ${opts.right ? 'text-right font-mono' : ''}`
     if (isEd) {
       return (
         <td key={field} className={cls}>
@@ -269,9 +269,13 @@ export default function EstadoBancario() {
         </td>
       )
     }
+    const isDetail = field === 'detail'
     return (
       <td key={field} className={cls} onClick={() => setEditing({ id, field })}>
-        <span className="cursor-text rounded px-1 py-0.5 hover:bg-slate-100">
+        <span
+          className={`cursor-text rounded px-1 py-0.5 hover:bg-slate-100 ${isDetail ? 'block max-w-[180px] truncate' : ''}`}
+          title={isDetail ? String(value ?? '') : undefined}
+        >
           {opts.display ?? String(value ?? '')}
         </span>
       </td>
@@ -416,15 +420,15 @@ export default function EstadoBancario() {
             <table className="w-full min-w-[860px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Categoría</th>
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Frecuencia</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Débito</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Crédito</th>
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Tipo</th>
-                  <th className="px-2 py-2.5 align-middle"></th>
+                  <th className="w-[92px] px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
+                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
+                  <th className="w-[180px] px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
+                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Categoría</th>
+                  <th className="w-[90px] px-2 py-2.5 font-semibold text-left align-middle">Frecuencia</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Débito</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Crédito</th>
+                  <th className="w-[70px] px-2 py-2.5 font-semibold text-left align-middle">Tipo</th>
+                  <th className="w-[36px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>
               <tbody>
@@ -722,16 +726,16 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
             <table className="w-full min-w-[980px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
-                  <th className="px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Débito real</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Crédito real</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Balance real</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Gasto proyectado</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Ingreso proyectado</th>
-                  <th className="px-2 py-2.5 text-right font-semibold align-middle">Balance proyectado</th>
-                  <th className="px-2 py-2.5 align-middle"></th>
+                  <th className="w-[92px] px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
+                  <th className="w-[180px] px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
+                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Débito real</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Crédito real</th>
+                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Balance real</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Gasto proy.</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Ingreso proy.</th>
+                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Balance proy.</th>
+                  <th className="w-[36px] px-2 py-2.5 align-middle"></th>
                   <th className="px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>

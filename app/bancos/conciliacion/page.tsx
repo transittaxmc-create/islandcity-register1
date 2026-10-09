@@ -367,7 +367,7 @@ export default function EstadoBancario() {
     )
   }
 
-  const selCell = (id: string, field: string, value: string, options: string[]) => {
+  const selCell = (id: string, field: string, value: string, options: string[], compact?: boolean) => {
     const isEd = editing?.id === id && editing?.field === field
     if (isEd) {
       return (
@@ -384,6 +384,18 @@ export default function EstadoBancario() {
               <option key={o} value={o}>{o}</option>
             ))}
           </select>
+        </td>
+      )
+    }
+    if (compact) {
+      return (
+        <td key={field} className="px-1 py-2 text-center align-middle" onClick={() => setEditing({ id, field })}>
+          <span
+            title={value || 'Sin seleccionar'}
+            className={`inline-grid size-5 cursor-pointer place-items-center rounded-full text-[11px] font-bold ${value ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-300'}`}
+          >
+            {value ? '✓' : '–'}
+          </span>
         </td>
       )
     }
@@ -408,8 +420,8 @@ export default function EstadoBancario() {
       {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
       {selCell(t.id, 'bank_account', t.bank_account, lists.accounts)}
       {txtCell(t.id, 'detail', t.detail, { display: shortDetail(t.detail) })}
-      {selCell(t.id, 'category', t.category, lists.categories)}
-      {selCell(t.id, 'frequency', t.frequency, FREQUENCIES)}
+      {selCell(t.id, 'category', t.category, lists.categories, true)}
+      {selCell(t.id, 'frequency', t.frequency, FREQUENCIES, true)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
       {txtCell(t.id, 'credit', t.credit, { type: 'number', right: true, display: Number(t.credit) ? money(Number(t.credit)) : '' })}
       {kind === 'real' ? (
@@ -600,8 +612,8 @@ export default function EstadoBancario() {
                   <th className="w-[74px] px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
                   <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
                   <th className="w-[170px] px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
-                  <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Categoría</th>
-                  <th className="w-[86px] px-2 py-2.5 font-semibold text-left align-middle">Frecuencia</th>
+                  <th className="w-[44px] px-1 py-2.5 font-semibold text-center align-middle" title="Categoría">Cat.</th>
+                  <th className="w-[44px] px-1 py-2.5 font-semibold text-center align-middle" title="Frecuencia">Frec.</th>
                   <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Débito</th>
                   <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Crédito</th>
                   <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>

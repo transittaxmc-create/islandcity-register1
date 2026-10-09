@@ -31,6 +31,36 @@ type Tx = {
   has_receipt: boolean; receipt_url: string | null; receipt_name: string | null;
 }
 
+// Extrae lo importante del detalle: "Zelle Debit ... NAME:JULIO CABRER" -> "Zelle - Julio Cabrer"
+// El texto completo siempre queda guardado en la base de datos.
+function shortDetail(detail: string): string {
+  if (!detail) return ''
+  const d = detail.trim()
+  // Zelle: saca el NAME
+  const zelle = d.match(/zelle\s+(debit|credit)?\s*.*?name:([^\s].*?)(\s{2,}|$)/i)
+  if (zelle) {
+    const name = zelle[2].trim().replace(/\s+/g, ' ')
+    const title = name.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+    return `Zelle - ${title}`.slice(0, 40)
+  }
+  if (/^zelle/i.test(d)) return d.slice(0, 40)
+  // Debit card transfer: saca el nombre
+  const dc = d.match(/debit card transfer (credit|debit)\s+([A-Za-z*]+(?:\s+[A-Za-z*]+){0,3})/i)
+  if (dc) {
+    const name = dc[2].trim().replace(/\s+/g, ' ')
+    const title = name.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+    return title.slice(0, 40)
+  }
+  // Dispute / ajustes: primera parte legible
+  const disp = d.match(/^(dispute[^-]*)/i)
+  if (disp) {
+    const title = disp[1].trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+    return title.slice(0, 40)
+  }
+  // Por defecto: limpia y corta
+  return d.replace(/\s+/g, ' ').slice(0, 40)
+}
+
 export default function EstadoBancario() {
   const [lists, setLists] = useState<{ accounts: string[]; categories: string[] }>({ accounts: FALLBACK_ACCOUNTS, categories: FALLBACK_CATEGORIES })
   const [month, setMonth] = useState(() => todayISO().slice(0, 7))
@@ -322,7 +352,7 @@ export default function EstadoBancario() {
     <tr key={t.id} className={`border-t border-slate-100 ${kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
       {selCell(t.id, 'bank_account', t.bank_account, lists.accounts)}
-      {txtCell(t.id, 'detail', t.detail)}
+      {txtCell(t.id, 'detail', t.detail, { display: shortDetail(t.detail) })}
       {selCell(t.id, 'category', t.category, lists.categories)}
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
@@ -675,7 +705,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
   const row = (r: FR) => (
     <tr key={r.id + r.kind} className={`border-t border-slate-100 ${r.kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(r.id, 'date', r.date, { type: 'date', display: fmtDate(r.date) })}
-      {txtCell(r.id, 'detail', r.detail)}
+      {txtCell(r.id, 'detail', r.detail, { display: shortDetail(r.detail) })}
       <td className="px-2 py-2 text-sm text-slate-500">{r.account}</td>
       {r.kind === 'real' ? (
         <>

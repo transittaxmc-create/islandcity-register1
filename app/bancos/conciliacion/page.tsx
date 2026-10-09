@@ -412,6 +412,13 @@ export default function EstadoBancario() {
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
       {txtCell(t.id, 'credit', t.credit, { type: 'number', right: true, display: Number(t.credit) ? money(Number(t.credit)) : '' })}
+      {kind === 'real' ? (
+        <td className="px-2 py-2.5 text-right align-middle whitespace-nowrap font-mono text-sm font-bold">
+          <span className={(runningBal.get(t.id) ?? 0) < 0 ? 'text-red-600' : 'text-slate-700'}>{money(runningBal.get(t.id) ?? 0)}</span>
+        </td>
+      ) : (
+        <td className="px-2 py-2.5 align-middle"></td>
+      )}
       <td className="px-2 py-2.5 text-right align-middle whitespace-nowrap">
         <span title={t.reconciled ? 'Reconciliado' : isFromBank(t.detail, t.source) ? 'Del banco' : 'Manual/Escaneado'} className={`mr-1 inline-grid size-4 place-items-center rounded-full ${t.reconciled ? 'bg-emerald-500' : isFromBank(t.detail, t.source) ? 'bg-blue-500' : 'bg-amber-400'}`}>
           {t.reconciled ? <span className="text-[8px] text-white">✓</span> : null}
@@ -449,6 +456,18 @@ export default function EstadoBancario() {
       return inText || inAmount
     })
   }, [transactions, projected, sortNewest, search])
+
+  // Balance acumulativo por fila (solo reales, en orden cronológico)
+  const runningBal = useMemo(() => {
+    const m = new Map<string, number>()
+    const chrono = [...transactions].sort((a, b) => a.date.localeCompare(b.date))
+    let b = 0
+    for (const t of chrono) {
+      b += (Number(t.credit) || 0) - (Number(t.debit) || 0)
+      m.set(t.id, b)
+    }
+    return m
+  }, [transactions])
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-[#17263d]" translate="no">
@@ -578,19 +597,20 @@ export default function EstadoBancario() {
             <table className="w-full min-w-[860px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                  <th className="w-[92px] px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
-                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
-                  <th className="w-[180px] px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
-                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Categoría</th>
-                  <th className="w-[90px] px-2 py-2.5 font-semibold text-left align-middle">Frecuencia</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Débito</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Crédito</th>
-                  <th className="w-[36px] px-2 py-2.5 align-middle"></th>
+                  <th className="w-[74px] px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
+                  <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
+                  <th className="w-[170px] px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
+                  <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Categoría</th>
+                  <th className="w-[86px] px-2 py-2.5 font-semibold text-left align-middle">Frecuencia</th>
+                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Débito</th>
+                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Crédito</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>
+                  <th className="w-[32px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Cargando…</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Cargando…</td></tr>
                 ) : (
                   <>
                     {allRows.map((t) => journalRow(t, t._kind))}
@@ -623,6 +643,7 @@ export default function EstadoBancario() {
                         <td className="px-2 py-2">
                           <input type="number" inputMode="decimal" value={newRow.credit} onChange={(e) => setNewRow({ ...newRow, credit: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-sm" />
                         </td>
+                        <td className="px-2 py-2"></td>
                         <td className="px-2 py-2">{badge(newRow.frequency === 'Un solo pago' ? 'real' : 'proy')}</td>
                         <td className="px-2 py-2">
                           <div className="flex gap-1">
@@ -633,7 +654,7 @@ export default function EstadoBancario() {
                       </tr>
                     )}
                     {!allRows.length && !newRow && (
-                      <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos este mes. Toca <b>+ Añadir</b> para crear el primero.</td></tr>
+                      <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos este mes. Toca <b>+ Añadir</b> para crear el primero.</td></tr>
                     )}
                   </>
                 )}

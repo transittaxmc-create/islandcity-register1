@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     const end = `${ym}-${String(last).padStart(2, '0')}`
 
     const { data: txs } = await sb.from('bank_transactions')
-      .select('date,detail,category,debit,credit')
+      .select('id,date,detail,category,debit,credit')
       .gte('date', start).lte('date', end).order('date', { ascending: true })
     const { data: rules } = await sb.from('recurring_projections')
       .select('concept,frequency,amount,type')
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     const txLines = (txs || []).slice(0, 150).map((x: any) => {
       const amt = Number(x.credit) ? `+$${Number(x.credit).toFixed(2)}` : `-$${Number(x.debit).toFixed(2)}`
-      return `- ${x.date} | ${x.detail} | ${x.category || 'Sin categoría'} | ${amt}`
+      return `- [id:${x.id}] ${x.date} | ${x.detail} | ${x.category || 'Sin categoría'} | ${amt}`
     }).join('\n')
     const context = `MES: ${ym}
 BALANCE REAL: $${(cReal - dReal).toFixed(2)} (ingresos $${cReal.toFixed(2)}, gastos $${dReal.toFixed(2)})
@@ -55,7 +55,35 @@ DETALLE DE MOVIMIENTOS (fecha | detalle | categoría | monto):
 ${txLines || '(sin movimientos)'}`
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' })
+    const tools = [{
+      functionDeclarations: [
+        {
+          name: 'cambiar_categoria',
+          description: 'Cambia la categoría de uno o más movimientos. Usa los id de la lista.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              ids: { type: 'ARRAY', items: { type: 'STRING' }, description: 'IDs de los movimientos' },
+              categoria: { type: 'STRING', description: 'Nueva categoría' },
+            },
+            required: ['ids', 'categoria'],
+          },
+        },
+        {
+          name: 'renombrar_detalle',
+          description: 'Cambia el nombre/detalle de un movimiento.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              id: { type: 'STRING', description: 'ID del movimiento' },
+              detalle: { type: 'STRING', description: 'Nuevo nombre' },
+            },
+            required: ['id', 'detalle'],
+          },
+        },
+      ],
+    }]
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash', tools } as any)
     const prompt = `Eres el asistente financiero de Island City Transit, un servicio de carro privado en Long Island, NY. Respondes SIEMPRE en español.
 
 REGLAS DE FORMATO (obligatorias, sin excepción):
@@ -65,11 +93,29 @@ REGLAS DE FORMATO (obligatorias, sin excepción):
 - PROHIBIDO escribir párrafos largos o más de 5 líneas en total.
 - Si los datos no alcanzan para responder, dilo en una sola línea y sugiere qué dato falta.
 - TIENES el detalle individual de cada movimiento arriba: úsalo para listar, filtrar por nombre/categoría y sumar al centavo.
+- PUEDES MODIFICAR: si el dueño pide cambiar una categoría o renombrar un detalle, usa las funciones cambiar_categoria o renombrar_detalle con los id correctos.
 
 DATOS REALES DEL NEGOCIO:
 ${context}`
 
     const res = await model.generateContent([prompt, `Pregunta del dueño: ${question}`])
+    const cand = res.response.candidates?.[0]
+    const parts = (cand?.content as any)?.parts || []
+    const fns = parts.filter((p: any) => p.functionCall)
+    if (fns.length) {
+      const results: string[] = []
+      for (const f of fns) {
+        const { name, args } = f.functionCall
+        if (name === 'cambiar_categoria') {
+          const { error, count } = await sb.from('bank_transactions').update({ category: args.categoria }).in('id', args.ids)
+          results.push(error ? `Error al cambiar categoría: ${error.message}` : `Categoría cambiada a "${args.categoria}" en ${count ?? args.ids.length} movimiento(s).`)
+        } else if (name === 'renombrar_detalle') {
+          const { error } = await sb.from('bank_transactions').update({ detail: args.detalle }).eq('id', args.id)
+          results.push(error ? `Error al renombrar: ${error.message}` : `Detalle cambiado a "${args.detalle}".`)
+        }
+      }
+      return NextResponse.json({ answer: results.join('\n') })
+    }
     const answer = res.response.text().trim()
     return NextResponse.json({ answer })
   } catch (err: any) {

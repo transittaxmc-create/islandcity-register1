@@ -78,6 +78,7 @@ export default function EstadoBancario() {
   const [syncMsg, setSyncMsg] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [sortNewest, setSortNewest] = useState(true)
+  const [search, setSearch] = useState('')
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<{ role: 'user' | 'ai'; text: string }[]>([])
@@ -368,8 +369,15 @@ export default function EstadoBancario() {
     const r = transactions.map((t) => ({ ...t, _kind: 'real' as const }))
     const p = projected.map((t) => ({ ...t, _kind: 'proy' as const }))
     const s = [...r, ...p].sort((a, b) => a.date.localeCompare(b.date))
-    return sortNewest ? s.reverse() : s
-  }, [transactions, projected, sortNewest])
+    const ordered = sortNewest ? s.reverse() : s
+    const q = search.trim().toLowerCase()
+    if (!q) return ordered
+    return ordered.filter((t) => {
+      const inText = [t.detail, t.bank_account, t.category, t.vendor].filter(Boolean).join(' ').toLowerCase().includes(q)
+      const inAmount = String(t.debit || '').includes(q) || String(t.credit || '').includes(q)
+      return inText || inAmount
+    })
+  }, [transactions, projected, sortNewest, search])
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] text-[#17263d]" translate="no">
@@ -432,6 +440,12 @@ export default function EstadoBancario() {
           <div className="flex items-center justify-between border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
             <h2 className="text-[17px] font-bold text-[#10243f]">Libro Diario</h2>
             <div className="flex items-center gap-3">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="🔍 Buscar…"
+                className="w-32 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-[#40b9a1] sm:w-44"
+              />
               <button onClick={() => setSortNewest((v) => !v)} title={sortNewest ? 'Ver más antiguos primero' : 'Ver más recientes primero'} className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200">
                 {sortNewest ? '↓ Recientes' : '↑ Antiguos'}
               </button>

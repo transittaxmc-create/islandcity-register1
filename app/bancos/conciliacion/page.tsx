@@ -8,9 +8,9 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-const CATEGORIES = ['Ingresos', 'Gasolina', 'Peajes E-ZPass', 'Mantenimiento', 'Llantas', 'Seguro comercial', 'Pago del vehículo', 'Comida', 'Otro']
+const FALLBACK_CATEGORIES = ['Ingresos', 'Gasolina', 'Peajes E-ZPass', 'Mantenimiento', 'Llantas', 'Seguro comercial', 'Pago del vehículo', 'Comida', 'Otro']
 const FREQUENCIES = ['Un solo pago', 'Diaria', 'Semanal', 'Mensual', 'Anual']
-const ACCOUNTS = ['Cuenta principal']
+const FALLBACK_ACCOUNTS = ['Cuenta principal']
 
 const money = (v: number) =>
   new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD' }).format(v || 0)
@@ -32,6 +32,7 @@ type Tx = {
 }
 
 export default function EstadoBancario() {
+  const [lists, setLists] = useState<{ accounts: string[]; categories: string[] }>({ accounts: FALLBACK_ACCOUNTS, categories: FALLBACK_CATEGORIES })
   const [month, setMonth] = useState(() => todayISO().slice(0, 7))
   const [transactions, setTransactions] = useState<Tx[]>([])
   const [projected, setProjected] = useState<Tx[]>([])
@@ -63,7 +64,16 @@ export default function EstadoBancario() {
     setLoading(false)
   }, [month])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    fetch('/api/reconcile/lists').then((r) => r.json()).then((j) => {
+      if (!j.error) {
+        const acc = (j.accounts || []).map((x: any) => x.name).filter(Boolean)
+        const cat = (j.categories || []).map((x: any) => x.name).filter(Boolean)
+        setLists({ accounts: acc.length ? acc : FALLBACK_ACCOUNTS, categories: cat.length ? cat : FALLBACK_CATEGORIES })
+      }
+    }).catch(() => {})
+  }, [load])
 
   const totals = useMemo(() => {
     let dReal = 0, cReal = 0, gProy = 0, iProy = 0
@@ -96,7 +106,7 @@ export default function EstadoBancario() {
 
   function startAdd() {
     setNewRow({
-      date: todayISO(), bank_account: ACCOUNTS[0], detail: '', category: 'Otro',
+      date: todayISO(), bank_account: lists.accounts[0] || FALLBACK_ACCOUNTS[0], detail: '', category: 'Otro',
       frequency: 'Un solo pago', debit: '', credit: '', entry_type: 'real',
     })
   }
@@ -250,9 +260,9 @@ export default function EstadoBancario() {
   const journalRow = (t: Tx, kind: 'real' | 'proy') => (
     <tr key={t.id} className={`border-t border-slate-100 ${kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
-      {selCell(t.id, 'bank_account', t.bank_account, ACCOUNTS)}
+      {selCell(t.id, 'bank_account', t.bank_account, lists.accounts)}
       {txtCell(t.id, 'detail', t.detail)}
-      {selCell(t.id, 'category', t.category, CATEGORIES)}
+      {selCell(t.id, 'category', t.category, lists.categories)}
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
       {txtCell(t.id, 'credit', t.credit, { type: 'number', right: true, display: Number(t.credit) ? money(Number(t.credit)) : '' })}
@@ -369,7 +379,7 @@ export default function EstadoBancario() {
                         </td>
                         <td className="px-2 py-2">
                           <select value={newRow.bank_account} onChange={(e) => setNewRow({ ...newRow, bank_account: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
-                            {ACCOUNTS.map((o) => <option key={o}>{o}</option>)}
+                            {lists.accounts.map((o) => <option key={o}>{o}</option>)}
                           </select>
                         </td>
                         <td className="px-2 py-2">
@@ -377,7 +387,7 @@ export default function EstadoBancario() {
                         </td>
                         <td className="px-2 py-2">
                           <select value={newRow.category} onChange={(e) => setNewRow({ ...newRow, category: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
-                            {CATEGORIES.map((o) => <option key={o}>{o}</option>)}
+                            {lists.categories.map((o) => <option key={o}>{o}</option>)}
                           </select>
                         </td>
                         <td className="px-2 py-2">

@@ -89,6 +89,9 @@ export default function EstadoBancario() {
   const [syncing, setSyncing] = useState(false)
   const [sortNewest, setSortNewest] = useState(true)
   const [search, setSearch] = useState('')
+  const [loadedAt, setLoadedAt] = useState<number | null>(null)
+  const [nowTick, setNowTick] = useState(() => Date.now())
+  const [acctPop, setAcctPop] = useState(false)
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([])
@@ -108,7 +111,25 @@ export default function EstadoBancario() {
       setOcrMsg('Error cargando: ' + e.message)
     }
     setLoading(false)
+    setLoadedAt(Date.now())
   }, [month])
+
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60000)
+    return () => clearInterval(id)
+  }, [])
+
+  const agoText = () => {
+    if (!loadedAt) return '…'
+    const m = Math.max(0, Math.round((nowTick - loadedAt) / 60000))
+    if (m < 1) return 'ahora mismo'
+    if (m === 1) return 'hace 1 min'
+    if (m < 60) return `hace ${m} min`
+    const h = Math.round(m / 60)
+    return h === 1 ? 'hace 1 h' : `hace ${h} h`
+  }
+
+  const ACCT_DOTS = ['#6366f1', '#10b981', '#f59e0b']
 
   useEffect(() => {
     load()
@@ -430,7 +451,7 @@ export default function EstadoBancario() {
   }, [transactions, projected, sortNewest, search])
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] text-[#17263d]" translate="no">
+    <div className="min-h-screen bg-[#f6f7f9] text-[#17263d]" translate="no">
       <div className="flex items-start">
         <div className="min-w-0 flex-1">
           <div className="mx-auto max-w-6xl px-4 py-6">
@@ -440,10 +461,17 @@ export default function EstadoBancario() {
           <span className="mx-1">›</span>
           <span className="font-semibold text-slate-600">Estado Bancario</span>
         </div>
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold">Estado Bancario</h1>
-            <p className="text-sm text-slate-500">Libro Diario — movimientos reales y proyecciones del mes</p>
+            <h1 className="text-[22px] font-bold text-[#0f172a]">Estado Bancario</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="relative flex size-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10b981] opacity-75" />
+                <span className="relative inline-flex size-2 rounded-full bg-[#10b981]" />
+              </span>
+              <p className="text-[13px] text-[#64748b]">Resumen de {accountBalances.length} {accountBalances.length === 1 ? 'cuenta' : 'cuentas'} • Hoy</p>
+              <span className="rounded-full border border-[#e2e8f0] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#64748b]">EN VIVO • Actualizado {agoText()}</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -461,34 +489,63 @@ export default function EstadoBancario() {
           </div>
         </div>
 
-        {/* KPIs */}
-        <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="rounded-2xl border-t-4 border-[#10243f] bg-white p-4 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Balance real</p>
-            <p className={`mt-1 font-mono text-[26px] font-bold ${realBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{money(realBalance)}</p>
-            <p className="mt-1 text-[11px] text-slate-400">Solo movimientos reales</p>
+        {/* KPIs — 4 banners fijos de 88px */}
+        <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
+          <div className="relative h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white p-[10px_12px]">
+            <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#eef2ff] text-[#6366f1]">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></svg>
+            </span>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Balance real</p>
+            <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#0f172a]">{money(realBalance)}</p>
           </div>
-          <div className="rounded-2xl border-t-4 border-emerald-500 bg-white p-4 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Ingresos reales</p>
-            <p className="mt-1 font-mono text-[26px] font-bold text-emerald-600">{money(totals.cReal)}</p>
-            <p className="mt-1 text-[11px] text-slate-400">{transactions.length} movimientos</p>
+          <div className="relative h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#bbf7d0] bg-gradient-to-br from-[#f0fdf4] to-[#ecfdf5] p-[10px_12px]">
+            <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#dcfce7] text-[#16a34a]">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+            </span>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#16a34a]">Ingresos reales</p>
+            <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#065f46]">{money(totals.cReal)}</p>
           </div>
-          <div className="rounded-2xl border-t-4 border-red-500 bg-white p-4 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Gastos reales</p>
-            <p className="mt-1 font-mono text-[26px] font-bold text-red-600">{money(totals.dReal)}</p>
-            <p className="mt-1 text-[11px] text-slate-400">Débito acumulado</p>
+          <div className="relative h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#fecdd3] bg-gradient-to-br from-[#fef2f2] to-[#fff1f2] p-[10px_12px]">
+            <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#fee2e2] text-[#e11d48]">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
+            </span>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#e11d48]">Gastos reales</p>
+            <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#be123c]">{money(totals.dReal)}</p>
           </div>
-          <div className="rounded-2xl border-t-4 border-[#10243f] bg-white p-4 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Cuentas</p>
-            <div className="mt-2 flex flex-col gap-1.5">
-              {accountBalances.length === 0 && <p className="text-xs text-slate-400">Sin balances</p>}
-              {accountBalances.map(([acct, v]) => (
-                <div key={acct} className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-semibold text-slate-600">{acct}</span>
-                  <span className={`font-mono text-sm font-bold ${v.balance < 0 ? 'text-red-600' : 'text-[#10243f]'}`}>{money(v.balance)}</span>
-                </div>
-              ))}
+          <div className="relative">
+            <div className="h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white p-[10px_12px]">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Cuentas</p>
+              <div className="mt-[2px] h-[36px] overflow-y-auto pr-1">
+                {accountBalances.length === 0 && <p className="text-[11px] text-slate-400">Sin balances</p>}
+                {accountBalances.slice(0, 3).map(([acct, v], i) => (
+                  <div key={acct} className="mb-1 flex h-[18px] items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="size-2 flex-none rounded-full" style={{ backgroundColor: ACCT_DOTS[i % 3] }} />
+                      <span className="truncate text-[11px] font-semibold text-slate-600">{acct}</span>
+                    </span>
+                    <span className={`flex-none font-mono text-[12px] font-bold ${v.balance < 0 ? 'text-[#be123c]' : 'text-[#0f172a]'}`}>{money(v.balance)}</span>
+                  </div>
+                ))}
+              </div>
+              {accountBalances.length > 3 && (
+                <button onClick={() => setAcctPop((v) => !v)} className="mt-[2px] text-[10px] font-bold text-[#6366f1] hover:underline">
+                  +{accountBalances.length - 3} más
+                </button>
+              )}
             </div>
+            {acctPop && accountBalances.length > 3 && (
+              <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 rounded-xl border border-[#e2e8f0] bg-white p-2 shadow-lg">
+                {accountBalances.slice(3).map(([acct, v], i) => (
+                  <div key={acct} className="flex h-[18px] items-center justify-between gap-2 px-1 py-0.5">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="size-2 flex-none rounded-full" style={{ backgroundColor: ACCT_DOTS[(i + 3) % 3] }} />
+                      <span className="truncate text-[11px] font-semibold text-slate-600">{acct}</span>
+                    </span>
+                    <span className={`flex-none font-mono text-[12px] font-bold ${v.balance < 0 ? 'text-[#be123c]' : 'text-[#0f172a]'}`}>{money(v.balance)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

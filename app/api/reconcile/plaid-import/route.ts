@@ -50,10 +50,17 @@ export async function POST(req: NextRequest) {
       })
       if (dup) { duplicates++; continue }
 
+      // Balance del día (igual que la ruta data).
+      const { data: prev } = await sb.from('bank_transactions')
+        .select('daily_balance').lte('date', date)
+        .order('date', { ascending: false }).order('created_at', { ascending: false }).limit(1)
+      const prevBal = prev?.[0]?.daily_balance ? Number(prev[0].daily_balance) : 0
+      const bal = prevBal + (credit || 0) - (debit || 0)
+
       const { error: insErr } = await sb.from('bank_transactions').insert({
         date, bank_account: account || 'Cuenta principal',
         detail: String(detail).slice(0, 200), category: 'Otro',
-        debit: debit || null, credit: credit || null,
+        debit: debit || null, credit: credit || null, daily_balance: bal,
       })
       if (insErr) throw new Error('Insert: ' + insErr.message)
       imported++

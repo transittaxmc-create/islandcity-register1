@@ -50,11 +50,12 @@ export async function POST(req: NextRequest) {
       })
       if (dup) { duplicates++; continue }
 
-      await sb.from('bank_transactions').insert({
+      const { error: insErr } = await sb.from('bank_transactions').insert({
         date, bank_account: account || 'Cuenta principal',
         detail: String(detail).slice(0, 200), category: 'Otro',
         debit: debit || null, credit: credit || null,
       })
+      if (insErr) throw new Error('Insert: ' + insErr.message)
       imported++
     }
     return NextResponse.json({ imported, duplicates })

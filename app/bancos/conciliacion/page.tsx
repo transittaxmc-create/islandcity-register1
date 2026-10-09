@@ -369,7 +369,7 @@ export default function EstadoBancario() {
     const p = projected.map((t) => ({ ...t, _kind: 'proy' as const }))
     const s = [...r, ...p].sort((a, b) => a.date.localeCompare(b.date))
     return sortNewest ? s.reverse() : s
-  }, [transactions, projected])
+  }, [transactions, projected, sortNewest])
 
   return (
     <div className="min-h-screen bg-[#f4f7fb] text-[#17263d]" translate="no">

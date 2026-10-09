@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
         date, bank_account: account || 'Cuenta principal',
         detail: String(detail).slice(0, 200), category: 'Otro',
         debit: debit || null, credit: credit || null, daily_balance: bal,
+        source: 'plaid',
       })
       if (insErr) throw new Error('Insert: ' + insErr.message)
       imported++

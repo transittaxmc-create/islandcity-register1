@@ -63,6 +63,14 @@ function shortDetail(detail: string): string {
 
 type ChatMsg = { role: 'user' | 'ai'; text: string; pending?: any[] }
 
+// Detecta si un detalle viene del banco (para transacciones viejas sin source)
+function isFromBank(detail: string, source?: string): boolean {
+  if (source === 'plaid') return true
+  if (source && source !== 'manual') return true
+  const d = (detail || '').toUpperCase()
+  return /PAY ID|ORG ID|\bNAME:|DEBIT CARD TRANSFER|^ZELLE|DISPUTE|ACH |WIRE /.test(d)
+}
+
 export default function EstadoBancario() {
   const [lists, setLists] = useState<{ accounts: string[]; categories: string[] }>({ accounts: FALLBACK_ACCOUNTS, categories: FALLBACK_CATEGORIES })
   const [month, setMonth] = useState(() => todayISO().slice(0, 7))
@@ -383,12 +391,29 @@ export default function EstadoBancario() {
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
       {txtCell(t.id, 'credit', t.credit, { type: 'number', right: true, display: Number(t.credit) ? money(Number(t.credit)) : '' })}
-      <td className="px-2 py-2.5 align-middle">{badge(kind)}</td>
-      <td className="px-2 py-2.5 text-right align-middle">
+      <td className="px-2 py-2.5 text-right align-middle whitespace-nowrap">
+        <span title={t.reconciled ? 'Reconciliado' : isFromBank(t.detail, t.source) ? 'Del banco' : 'Manual/Escaneado'} className={`mr-1 inline-grid size-4 place-items-center rounded-full ${t.reconciled ? 'bg-emerald-500' : isFromBank(t.detail, t.source) ? 'bg-blue-500' : 'bg-amber-400'}`}>
+          {t.reconciled ? <span className="text-[8px] text-white">✓</span> : null}
+        </span>
         <button onClick={() => delRow(t.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Borrar">×</button>
       </td>
     </tr>
   )
+
+  // Balances por cuenta (solo las que tienen balance distinto de cero)
+  const accountBalances = useMemo(() => {
+    const latest: Record<string, { balance: number; date: string }> = {}
+    for (const t of transactions) {
+      const acct = t.bank_account || 'Cuenta principal'
+      const bal = Number(t.daily_balance) || 0
+      if (!latest[acct] || t.date >= latest[acct].date) {
+        latest[acct] = { balance: bal, date: t.date }
+      }
+    }
+    return Object.entries(latest)
+      .filter(([, v]) => v.balance !== 0)
+      .sort((a, b) => Math.abs(b[1].balance) - Math.abs(a[1].balance))
+  }, [transactions])
 
   const allRows = useMemo(() => {
     const r = transactions.map((t) => ({ ...t, _kind: 'real' as const }))
@@ -453,10 +478,17 @@ export default function EstadoBancario() {
             <p className="mt-1 font-mono text-[26px] font-bold text-red-600">{money(totals.dReal)}</p>
             <p className="mt-1 text-[11px] text-slate-400">Débito acumulado</p>
           </div>
-          <div className="rounded-2xl border-t-4 border-amber-500 bg-white p-4 shadow-sm">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Proyectado neto</p>
-            <p className={`mt-1 font-mono text-[26px] font-bold ${totals.iProy - totals.gProy < 0 ? 'text-red-600' : 'text-amber-600'}`}>{money(totals.iProy - totals.gProy)}</p>
-            <p className="mt-1 text-[11px] text-slate-400">{projected.length} filas futuras</p>
+          <div className="rounded-2xl border-t-4 border-[#10243f] bg-white p-4 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Cuentas</p>
+            <div className="mt-2 flex flex-col gap-1.5">
+              {accountBalances.length === 0 && <p className="text-xs text-slate-400">Sin balances</p>}
+              {accountBalances.map(([acct, v]) => (
+                <div key={acct} className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs font-semibold text-slate-600">{acct}</span>
+                  <span className={`font-mono text-sm font-bold ${v.balance < 0 ? 'text-red-600' : 'text-[#10243f]'}`}>{money(v.balance)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -496,7 +528,6 @@ export default function EstadoBancario() {
                   <th className="w-[90px] px-2 py-2.5 font-semibold text-left align-middle">Frecuencia</th>
                   <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Débito</th>
                   <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Crédito</th>
-                  <th className="w-[70px] px-2 py-2.5 font-semibold text-left align-middle">Tipo</th>
                   <th className="w-[36px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>

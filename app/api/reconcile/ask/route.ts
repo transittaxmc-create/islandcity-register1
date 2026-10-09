@@ -40,13 +40,19 @@ export async function POST(req: NextRequest) {
       .map((r: any) => `- ${r.concept} (${r.frequency}): $${Number(r.amount).toFixed(2)} [${r.type}]`)
       .join('\n')
 
+    const txLines = (txs || []).slice(0, 150).map((x: any) => {
+      const amt = Number(x.credit) ? `+$${Number(x.credit).toFixed(2)}` : `-$${Number(x.debit).toFixed(2)}`
+      return `- ${x.date} | ${x.detail} | ${x.category || 'Sin categoría'} | ${amt}`
+    }).join('\n')
     const context = `MES: ${ym}
 BALANCE REAL: $${(cReal - dReal).toFixed(2)} (ingresos $${cReal.toFixed(2)}, gastos $${dReal.toFixed(2)})
 MOVIMIENTOS: ${(txs || []).length}
 POR CATEGORÍA (neto):
 ${catLines || '(sin datos)'}
 PROGRAMADOS (reglas):
-${progLines || '(ninguno)'}`
+${progLines || '(ninguno)'}
+DETALLE DE MOVIMIENTOS (fecha | detalle | categoría | monto):
+${txLines || '(sin movimientos)'}`
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '')
     const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' })
@@ -58,6 +64,7 @@ REGLAS DE FORMATO (obligatorias, sin excepción):
 - Números siempre con $ y 2 decimales.
 - PROHIBIDO escribir párrafos largos o más de 5 líneas en total.
 - Si los datos no alcanzan para responder, dilo en una sola línea y sugiere qué dato falta.
+- TIENES el detalle individual de cada movimiento arriba: úsalo para listar, filtrar por nombre/categoría y sumar al centavo.
 
 DATOS REALES DEL NEGOCIO:
 ${context}`

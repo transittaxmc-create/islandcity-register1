@@ -94,7 +94,7 @@ export default function EstadoBancario() {
   const [acctPop, setAcctPop] = useState(false)
   // Register por cuenta: filtro + balances reales + transferencias
   const [acctFilter, setAcctFilter] = useState('all')
-  const [acctMeta, setAcctMeta] = useState<{ name: string; current_balance: number | null }[]>([])
+  const [acctMeta, setAcctMeta] = useState<{ name: string; current_balance: number | null; institution: string | null }[]>([])
   const [links, setLinks] = useState<any[]>([])
   const [showTransfers, setShowTransfers] = useState(false)
   const [transferCands, setTransferCands] = useState<any[]>([])
@@ -159,10 +159,16 @@ export default function EstadoBancario() {
         const acc = (j.accounts || []).map((x: any) => x.name).filter(Boolean)
         const cat = (j.categories || []).map((x: any) => x.name).filter(Boolean)
         setLists({ accounts: acc.length ? acc : FALLBACK_ACCOUNTS, categories: cat.length ? cat : FALLBACK_CATEGORIES })
-        setAcctMeta((j.accounts || []).map((x: any) => ({ name: x.name, current_balance: x.current_balance ?? null })).filter((x: any) => x.name))
+        setAcctMeta((j.accounts || []).map((x: any) => ({ name: x.name, current_balance: x.current_balance ?? null, institution: x.institution || null })).filter((x: any) => x.name))
       }
     }).catch(() => {})
   }, [load])
+
+  // Banco (institución) de la cuenta seleccionada, para mostrarlo arriba del register
+  const acctInstitution = useMemo(() => {
+    if (acctFilter === 'all') return null
+    return acctMeta.find((a) => a.name === acctFilter)?.institution || null
+  }, [acctMeta, acctFilter])
 
   // Movimientos vinculados como transferencias (no cuentan como ingreso/gasto: evita duplicar)
   const linkedIds = useMemo(() => {
@@ -633,7 +639,12 @@ export default function EstadoBancario() {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10b981] opacity-75" />
                 <span className="relative inline-flex size-2 rounded-full bg-[#10b981]" />
               </span>
-              <p className="text-[13px] text-[#64748b]">{acctFilter === 'all' ? `Summary of ${accountBalances.length} ${accountBalances.length === 1 ? 'account' : 'accounts'}` : acctFilter} • Today</p>
+              <p className="text-[13px] text-[#64748b]">
+                {acctFilter === 'all'
+                  ? `Summary of ${accountBalances.length} ${accountBalances.length === 1 ? 'account' : 'accounts'}`
+                  : <>{acctInstitution && <span className="font-bold text-[#10243f]">{acctInstitution} — </span>}{acctFilter}</>}
+                {' '}• Today
+              </p>
               <span className="rounded-full border border-[#e2e8f0] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#64748b]">LIVE • Updated {agoText()}</span>
             </div>
           </div>
@@ -752,6 +763,7 @@ export default function EstadoBancario() {
               <button
                 key={n}
                 onClick={() => setAcctFilter(n)}
+                title={n === 'all' ? 'All accounts' : (acctMeta.find((a) => a.name === n)?.institution || n)}
                 className={`max-w-[160px] truncate rounded-full px-2.5 py-1 text-[11px] font-bold ${acctFilter === n ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
                 {n === 'all' ? 'All accounts' : n}

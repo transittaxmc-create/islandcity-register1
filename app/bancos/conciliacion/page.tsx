@@ -336,6 +336,7 @@ export default function EstadoBancario() {
   }
 
   // Pregunta al asistente financiero.
+  // Si pide un PDF/reporte, la AI lo genera y descarga directamente (él especifica los meses exactos).
   async function askAI(q: string) {
     const text = q.trim()
     if (!text || chatBusy) return
@@ -343,7 +344,33 @@ export default function EstadoBancario() {
     setChatMsgs(msgs)
     setChatInput('')
     setChatBusy(true)
+    const scrollDown = () => setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
     try {
+      if (/\bpdf\b|reporte|statement/i.test(text)) {
+        const pdf = await import('@/lib/statement-pdf')
+        const range = pdf.parseReportRange(text)
+        if (!range) {
+          setChatMsgs([...msgs, { role: 'ai', text: '¿De qué meses genero el PDF? Dime por ejemplo: "PDF de enero a marzo 2026" o "PDF todo el 2026".' }])
+        } else {
+          setChatMsgs([...msgs, { role: 'ai', text: `Generando el PDF de ${pdf.rangeLabel(range.from, range.to)}…` }])
+          scrollDown()
+          const yms = pdf.monthsBetween(range.from, range.to)
+          const months: { ym: string; txs: any[] }[] = []
+          for (const ym of yms) {
+            const r = await fetch(`/api/reconcile/data?month=${ym}`)
+            const j = await r.json().catch(() => null)
+            months.push({ ym, txs: (j && j.transactions) || [] })
+          }
+          const inst: Record<string, string> = {}
+          for (const a of acctMeta) if (a.institution) inst[a.name] = a.institution
+          const fname = await pdf.generateStatementPDF(months, inst, range.from, range.to)
+          const total = months.reduce((s, m) => s + m.txs.length, 0)
+          setChatMsgs((prev) => [...prev, { role: 'ai', text: `PDF generado: ${fname} (${total} movimientos, ${pdf.rangeLabel(range.from, range.to)}). Revísalo y me dices si quieres ajustar algo.` }])
+        }
+        setChatBusy(false)
+        scrollDown()
+        return
+      }
       const r = await fetch('/api/reconcile/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -359,7 +386,7 @@ export default function EstadoBancario() {
       setChatMsgs([...msgs, { role: 'ai', text: 'No pude responder: ' + e.message }])
     }
     setChatBusy(false)
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    scrollDown()
   }
 
   // Aprueba y ejecuta un cambio propuesto.
@@ -1052,7 +1079,7 @@ export default function EstadoBancario() {
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') askAI(chatInput) }}
-                  placeholder="Finance question…"
+                  placeholder="Finance question… or 'PDF de enero a marzo'"
                   className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 />
                 <button onClick={() => askAI(chatInput)} disabled={chatBusy} className="rounded-xl bg-[#40b9a1] px-4 py-2 text-sm font-bold text-[#10243f] disabled:opacity-50" aria-label="Send">

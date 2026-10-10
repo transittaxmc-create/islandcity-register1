@@ -61,7 +61,7 @@ function shortDetail(detail: string): string {
   return d.replace(/\s+/g, ' ').slice(0, 40)
 }
 
-type ChatMsg = { role: 'user' | 'ai'; text: string; pending?: any[] }
+type ChatMsg = { role: 'user' | 'ai'; text: string; pending?: any[]; file?: { name: string; url: string } }
 
 // Detecta si un detalle viene del banco (para transacciones viejas sin source)
 function isFromBank(detail: string, source?: string): boolean {
@@ -374,9 +374,16 @@ export default function EstadoBancario() {
           const inst: Record<string, string> = {}
           const ord: Record<string, number> = {}
           for (const a of acctMeta) { if (a.institution) inst[a.name] = a.institution; ord[a.name] = a.display_order }
-          const fname = await pdf.generateStatementPDF(months, inst, range.from, range.to, ord)
+          const { fname, url } = await pdf.generateStatementPDF(months, inst, range.from, range.to, ord)
           const total = months.reduce((s, m) => s + m.txs.length, 0)
-          setChatMsgs((prev) => [...prev, { role: 'ai', text: `PDF generado: ${fname} (${total} movimientos, ${pdf.rangeLabel(range.from, range.to)}). Revísalo y me dices si quieres ajustar algo.` }])
+          // Descarga automática + link en el mensaje por si el navegador la bloquea.
+          const a = document.createElement('a')
+          a.href = url
+          a.download = fname
+          document.body.appendChild(a)
+          a.click()
+          a.remove()
+          setChatMsgs((prev) => [...prev, { role: 'ai', text: `PDF generado: ${fname} (${total} movimientos, ${pdf.rangeLabel(range.from, range.to)}).`, file: { name: fname, url } }])
         }
         setChatBusy(false)
         scrollDown()
@@ -1055,6 +1062,17 @@ export default function EstadoBancario() {
                   <div key={i} className={`mb-3 ${m.role === 'user' ? 'text-right' : ''}`}>
                     <div className={`inline-block max-w-[90%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line text-left ${m.role === 'user' ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-700'}`}>
                       {m.text}
+                      {m.file && (
+                        <div className="mt-2">
+                          <a
+                            href={m.file.url}
+                            download={m.file.name}
+                            className="inline-block rounded-lg bg-[#10243f] px-3 py-1.5 text-xs font-bold text-white"
+                          >
+                            📄 Descargar {m.file.name}
+                          </a>
+                        </div>
+                      )}
                       {m.pending?.length > 0 && (
                         <div className="mt-2 border-t border-slate-200 pt-2">
                           {m.pending.map((p: any, j: number) => (

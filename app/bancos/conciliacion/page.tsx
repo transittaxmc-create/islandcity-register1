@@ -392,7 +392,7 @@ export default function EstadoBancario() {
         <td key={field} className="px-1 py-2 text-center align-middle" onClick={() => setEditing({ id, field })}>
           <span
             title={value || 'None selected'}
-            className="block cursor-pointer truncate text-[9px] font-medium leading-tight text-slate-600 hover:text-slate-900"
+            className="block w-[46px] cursor-pointer truncate text-[9px] font-medium leading-tight text-slate-600 hover:text-slate-900"
           >
             {value || '–'}
           </span>

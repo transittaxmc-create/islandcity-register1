@@ -660,7 +660,7 @@ export default function EstadoBancario() {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></svg>
             </span>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Real balance</p>
-            <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#0f172a]">{realBalance == null ? '—' : money(realBalance)}</p>
+            <p className={`mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] ${realBalance != null && realBalance < 0 ? 'text-[#be123c]' : 'text-[#0f172a]'}`}>{realBalance == null ? '—' : money(realBalance)}</p>
           </div>
           <div className="relative h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#bbf7d0] bg-gradient-to-br from-[#f0fdf4] to-[#ecfdf5] p-[10px_12px]">
             <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#dcfce7] text-[#16a34a]">

@@ -98,6 +98,14 @@ export default function EstadoBancario() {
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const newRowRef = useRef<HTMLTableRowElement>(null)
+
+  // Cuando se abre el formulario + Add, llevarlo a la vista (está arriba de la tabla).
+  useEffect(() => {
+    if (newRow && newRowRef.current) {
+      newRowRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  }, [newRow])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -625,9 +633,8 @@ export default function EstadoBancario() {
                   <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
                 ) : (
                   <>
-                    {allRows.map((t) => journalRow(t, t._kind))}
                     {newRow && (
-                      <tr className="border-t-2 border-[#40b9a1] bg-emerald-50/60">
+                      <tr ref={newRowRef} className="border-t-2 border-[#40b9a1] bg-emerald-50/60">
                         <td className="px-2 py-2">
                           <input type="date" value={newRow.date} onChange={(e) => setNewRow({ ...newRow, date: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
                         </td>
@@ -656,15 +663,16 @@ export default function EstadoBancario() {
                           <input type="number" inputMode="decimal" value={newRow.credit} onChange={(e) => setNewRow({ ...newRow, credit: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-sm" />
                         </td>
                         <td className="px-2 py-2"></td>
-                        <td className="px-2 py-2">{badge(newRow.frequency === 'Un solo pago' ? 'real' : 'proy')}</td>
                         <td className="px-2 py-2">
-                          <div className="flex gap-1">
+                          <div className="flex items-center justify-end gap-1">
+                            {badge(newRow.frequency === 'Un solo pago' ? 'real' : 'proy')}
                             <button onClick={commitAdd} className="rounded-lg bg-[#40b9a1] px-2 py-1 text-xs font-bold text-[#10243f]">✓</button>
                             <button onClick={() => setNewRow(null)} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500">✕</button>
                           </div>
                         </td>
                       </tr>
                     )}
+                    {allRows.map((t) => journalRow(t, t._kind))}
                     {!allRows.length && !newRow && (
                       <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No transactions this month. Tap <b>+ Add</b> to create the first one.</td></tr>
                     )}

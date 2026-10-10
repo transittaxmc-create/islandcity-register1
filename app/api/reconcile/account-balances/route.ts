@@ -15,11 +15,12 @@ export async function POST(req: NextRequest) {
       const cur = Number(b.current)
       if (!name || !isFinite(cur)) continue
       const now = new Date().toISOString()
+      const inst = String(b.institution || '').trim() || null
       const { data: ex } = await sb.from('bank_accounts').select('id').eq('name', name).limit(1)
       if (ex && ex.length) {
-        await sb.from('bank_accounts').update({ current_balance: cur, balance_updated_at: now }).eq('id', ex[0].id)
+        await sb.from('bank_accounts').update({ current_balance: cur, balance_updated_at: now, ...(inst ? { institution: inst } : {}) }).eq('id', ex[0].id)
       } else {
-        await sb.from('bank_accounts').insert({ name, current_balance: cur, balance_updated_at: now })
+        await sb.from('bank_accounts').insert({ name, current_balance: cur, balance_updated_at: now, institution: inst })
       }
       updated++
     }

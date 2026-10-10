@@ -1044,6 +1044,7 @@ export default function EstadoBancario() {
             onClose={() => setShowFull(false)}
             txtCell={txtCell}
             delRow={delRow}
+            acctShort={acctShort}
           />
         )}
           </div>
@@ -1133,7 +1134,7 @@ export default function EstadoBancario() {
 }
 
 /* ---------- Registro Completo (overlay) ---------- */
-function FullRegister({ month, transactions, projected, onClose, txtCell, delRow, sortNewest }: {
+function FullRegister({ month, transactions, projected, onClose, txtCell, delRow, sortNewest, acctShort }: {
   month: string
   transactions: Tx[]
   projected: Tx[]
@@ -1141,6 +1142,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
   txtCell: (id: string, field: string, value: any, opts?: { type?: string; right?: boolean; display?: string }) => ReactNode
   delRow: (id: string) => void
   sortNewest: boolean
+  acctShort: (name: string) => string
 }) {
   const today = todayISO()
   const monthName = (() => {

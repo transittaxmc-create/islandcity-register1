@@ -18,7 +18,7 @@ export async function GET() {
     const sb = supabaseServer()
     const out: any = {}
     for (const [key, table] of Object.entries(TABLES)) {
-      const cols = key === 'accounts' ? 'id,name,current_balance,balance_updated_at' : 'id,name'
+      const cols = key === 'accounts' ? 'id,name,current_balance,balance_updated_at,institution' : 'id,name'
       const { data, error } = await sb.from(table).select(cols).order('name')
       if (error) throw error
       out[key] = data

@@ -170,6 +170,15 @@ export default function EstadoBancario() {
     return acctMeta.find((a) => a.name === acctFilter)?.institution || null
   }, [acctMeta, acctFilter])
 
+  // Etiqueta "Banco · Cuenta" para identificar cada cuenta (evita duplicar si ya lo trae)
+  const acctLabel = (name: string) => {
+    const inst = acctMeta.find((a) => a.name === name)?.institution
+    if (!inst) return name
+    const firstWord = inst.split(' ')[0].toLowerCase()
+    if (name.toLowerCase().includes(firstWord)) return name
+    return `${inst} · ${name}`
+  }
+
   // Movimientos vinculados como transferencias (no cuentan como ingreso/gasto: evita duplicar)
   const linkedIds = useMemo(() => {
     const s = new Set<string>()
@@ -723,7 +732,7 @@ export default function EstadoBancario() {
                   <div key={acct} className="mb-1 flex h-[18px] items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className="size-2 flex-none rounded-full" style={{ backgroundColor: ACCT_DOTS[i % 3] }} />
-                      <span className="truncate text-[11px] font-semibold text-slate-600">{acct}</span>
+                      <span className="truncate text-[11px] font-semibold text-slate-600">{acctLabel(acct)}</span>
                     </span>
                     <span className={`flex-none font-mono text-[12px] font-bold ${v.balance < 0 ? 'text-[#be123c]' : 'text-[#0f172a]'}`}>{money(v.balance)}</span>
                   </div>
@@ -741,7 +750,7 @@ export default function EstadoBancario() {
                   <div key={acct} className="flex h-[18px] items-center justify-between gap-2 px-1 py-0.5">
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className="size-2 flex-none rounded-full" style={{ backgroundColor: ACCT_DOTS[(i + 3) % 3] }} />
-                      <span className="truncate text-[11px] font-semibold text-slate-600">{acct}</span>
+                      <span className="truncate text-[11px] font-semibold text-slate-600">{acctLabel(acct)}</span>
                     </span>
                     <span className={`flex-none font-mono text-[12px] font-bold ${v.balance < 0 ? 'text-[#be123c]' : 'text-[#0f172a]'}`}>{money(v.balance)}</span>
                   </div>
@@ -793,7 +802,7 @@ export default function EstadoBancario() {
                 title={n === 'all' ? 'All accounts' : (acctMeta.find((a) => a.name === n)?.institution || n)}
                 className={`max-w-[160px] truncate rounded-full px-2.5 py-1 text-[11px] font-bold ${acctFilter === n ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
-                {n === 'all' ? 'All accounts' : n}
+                {n === 'all' ? 'All accounts' : acctLabel(n)}
               </button>
             ))}
           </div>

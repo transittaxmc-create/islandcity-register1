@@ -3,7 +3,7 @@
 // app/bancos/conciliacion/page.tsx — Estado Bancario (Dual Register).
 // Libro Diario unificado: filas REALES + PROYECTADAS distinguibles.
 // Solo lo real mueve el balance real. Reglas recurrentes generan las filas futuras.
-// "View full register" opens the whole month fullscreen (overlay, same page).
+// El register completo vive en el tab Proyecciones de la página raíz.
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -78,7 +78,6 @@ export default function EstadoBancario() {
   const [projected, setProjected] = useState<Tx[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<{ id: string; field: string } | null>(null)
-  const [showFull, setShowFull] = useState(false)
   const [newRow, setNewRow] = useState<any>(null)
   const [ocrBusy, setOcrBusy] = useState(false)
   const [ocrMsg, setOcrMsg] = useState('')
@@ -792,9 +791,6 @@ export default function EstadoBancario() {
               <button onClick={() => setSortNewest((v) => !v)} title={sortNewest ? 'See oldest first' : 'See newest first'} className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200">
                 {sortNewest ? '↓ Newest' : '↑ Oldest'}
               </button>
-              <button onClick={() => setShowFull(true)} className="text-xs font-semibold text-[#0f8a73] hover:underline">
-                View full register
-              </button>
               <button
                 onClick={() => setShowTransfers((v) => !v)}
                 title="Match bank-to-bank transfers"
@@ -1035,22 +1031,6 @@ export default function EstadoBancario() {
         </div>
 
         {/* ===== Full Register: fullscreen overlay on this same page ===== */}
-        {showFull && (
-          <FullRegister
-            month={month}
-            transactions={transactions}
-            projected={projected}
-            sortNewest={sortNewest}
-            onClose={() => setShowFull(false)}
-            txtCell={txtCell}
-            delRow={delRow}
-            acctShort={acctShort}
-            ftx={ftx}
-            fproj={fproj}
-            trueBal={trueBal}
-            realBalance={realBalance}
-          />
-        )}
           </div>
         </div>
         {chatOpen && (
@@ -1132,161 +1112,6 @@ export default function EstadoBancario() {
             </div>
           </aside>
         )}
-      </div>
-    </div>
-  )
-}
-
-/* ---------- Registro Completo (overlay) ---------- */
-function FullRegister({ month, transactions, projected, onClose, txtCell, delRow, sortNewest, acctShort, ftx, fproj, trueBal, realBalance }: {
-  month: string
-  transactions: Tx[]
-  projected: Tx[]
-  onClose: () => void
-  txtCell: (id: string, field: string, value: any, opts?: { type?: string; right?: boolean; display?: string }) => ReactNode
-  delRow: (id: string) => void
-  sortNewest: boolean
-  acctShort: (name: string) => string
-  ftx: Tx[]
-  fproj: Tx[]
-  trueBal: Map<string, number | null>
-  realBalance: number | null
-}) {
-  const today = todayISO()
-  const monthName = (() => {
-    const [y, m] = month.split('-').map(Number)
-    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  })()
-
-  type FR = {
-    id: string; date: string; detail: string; account: string; kind: 'real' | 'proy'
-    dReal: number; cReal: number; gProy: number; iProy: number; realBal?: number | null; projBal?: number
-  }
-
-  const { past, future, totGProy, totIProy, finalProj } = useMemo(() => {
-    const rows: FR[] = [
-      ...ftx.map((t) => ({
-        id: t.id, date: t.date, detail: t.detail, account: t.bank_account, kind: 'real' as const,
-        dReal: Number(t.debit) || 0, cReal: Number(t.credit) || 0, gProy: 0, iProy: 0,
-      })),
-      ...fproj.map((p) => ({
-        id: p.id, date: p.date, detail: p.detail, account: p.bank_account, kind: 'proy' as const,
-        dReal: 0, cReal: 0, gProy: Number(p.debit) || 0, iProy: Number(p.credit) || 0,
-      })),
-    ].sort((a, b) => {
-      const d = a.date.localeCompare(b.date) || (a.kind === 'real' ? -1 : 1)
-      return sortNewest ? -d : d
-    })
-
-    for (const r of rows) if (r.kind === 'real') { r.realBal = trueBal.get(r.id) ?? null }
-    let pb = realBalance ?? 0
-    let tg = 0, ti = 0
-    for (const r of rows) {
-      if (r.kind === 'proy') { pb += r.iProy - r.gProy; r.projBal = pb; tg += r.gProy; ti += r.iProy }
-    }
-    return {
-      past: rows.filter((r) => r.date < today),
-      future: rows.filter((r) => r.date >= today),
-      totGProy: tg, totIProy: ti, finalProj: pb,
-    }
-  }, [ftx, fproj, today, trueBal, realBalance])
-
-  const row = (r: FR) => (
-    <tr key={r.id + r.kind} className={`border-t border-slate-100 ${r.kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
-      {txtCell(r.id, 'date', r.date, { type: 'date', display: fmtDate(r.date) })}
-      {txtCell(r.id, 'detail', r.detail, { display: shortDetail(r.detail) })}
-      <td className="px-2 py-2 text-sm text-slate-500" title={r.account}>{acctShort(r.account)}</td>
-      {r.kind === 'real' ? (
-        <>
-          {txtCell(r.id, 'debit', r.dReal, { type: 'number', right: true, display: r.dReal ? money(r.dReal) : '' })}
-          {txtCell(r.id, 'credit', r.cReal, { type: 'number', right: true, display: r.cReal ? money(r.cReal) : '' })}
-          <td className={`px-2 py-2 text-right font-mono text-sm font-bold ${(r.realBal ?? 0) < 0 ? 'text-red-600' : ''}`}>{r.realBal == null ? '–' : money(r.realBal)}</td>
-          <td className="px-2 py-2"></td>
-          <td className="px-2 py-2"></td>
-          <td className="px-2 py-2"></td>
-        </>
-      ) : (
-        <>
-          <td className="px-2 py-2"></td>
-          <td className="px-2 py-2"></td>
-          <td className="px-2 py-2"></td>
-          {txtCell(r.id, 'debit', r.gProy, { type: 'number', right: true, display: r.gProy ? money(r.gProy) : '' })}
-          {txtCell(r.id, 'credit', r.iProy, { type: 'number', right: true, display: r.iProy ? money(r.iProy) : '' })}
-          <td className={`px-2 py-2 text-right font-mono text-sm font-bold ${Number(r.projBal) < 0 ? 'text-red-600' : 'text-amber-700'}`}>{money(Number(r.projBal))}</td>
-        </>
-      )}
-      <td className="px-2 py-2">
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${r.kind === 'real' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-          {r.kind === 'real' ? 'Actual' : 'Projected'}
-        </span>
-      </td>
-      <td className="px-2 py-2 text-right">
-        <button onClick={() => delRow(r.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Delete">×</button>
-      </td>
-    </tr>
-  )
-
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-[#f4f7fb]">
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Full Register</h1>
-            <p className="text-sm text-slate-500 capitalize">{monthName} — actuals + projections in date order</p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-xl bg-[#10243f] px-4 py-2 text-sm font-bold text-white">← Back</button>
-            <button onClick={onClose} className="rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-600" aria-label="Close">✕</button>
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] border-collapse">
-              <thead>
-                <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="w-[92px] px-2 py-2.5 font-semibold text-left align-middle">Date</th>
-                  <th className="w-[180px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
-                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Account</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Actual debit</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Actual credit</th>
-                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Real balance</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Proj. expense</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Proj. income</th>
-                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Proj. balance</th>
-                  <th className="w-[36px] px-2 py-2.5 align-middle"></th>
-                  <th className="px-2 py-2.5 align-middle"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {past.map(row)}
-                <tr className="bg-[#10243f]">
-                  <td colSpan={11} className="px-4 py-1.5 text-center text-xs font-bold tracking-[0.2em] text-white">— TODAY —</td>
-                </tr>
-                {future.map(row)}
-                {past.length + future.length === 0 && (
-                  <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">No transactions this month.</td></tr>
-                )}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
-                  <td colSpan={3} className="px-2 py-3 text-sm">Projected totals</td>
-                  <td className="px-2 py-3"></td>
-                  <td className="px-2 py-3"></td>
-                  <td className="px-2 py-3"></td>
-                  <td className="px-2 py-3 text-right font-mono text-sm text-red-600">{money(totGProy)}</td>
-                  <td className="px-2 py-3 text-right font-mono text-sm text-emerald-600">{money(totIProy)}</td>
-                  <td className={`px-2 py-3 text-right font-mono text-sm ${finalProj < 0 ? 'text-red-600' : 'text-amber-700'}`}>{money(finalProj)}</td>
-                  <td className="px-2 py-3"></td>
-                  <td className="px-2 py-3"></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400">
-            Tap any cell to edit — everything saves automatically. Projected balance starts from the current real balance.
-          </p>
-        </div>
       </div>
     </div>
   )

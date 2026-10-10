@@ -179,6 +179,16 @@ export default function EstadoBancario() {
     return `${inst} · ${name}`
   }
 
+  // Forma corta para la columna Account del Journal: solo banco + últimos 4 dígitos.
+  // El nombre completo queda en background (tooltip y dropdown de edición).
+  const acctShort = (name: string) => {
+    const m = acctMeta.find((a) => a.name === name)
+    const inst = (m?.institution || '').replace(/\s+(Online|Credit Union|Bank)$/i, '')
+    const mask = (name.match(/(\d{4})\s*$/) || [])[1]
+    if (!inst && !mask) return name
+    return `${inst}${mask ? ` …${mask}` : ''}`.trim() || name
+  }
+
   // Movimientos vinculados como transferencias (no cuentan como ingreso/gasto: evita duplicar)
   const linkedIds = useMemo(() => {
     const s = new Set<string>()
@@ -460,7 +470,7 @@ export default function EstadoBancario() {
     )
   }
 
-  const selCell = (id: string, field: string, value: string, options: string[], compact?: boolean) => {
+  const selCell = (id: string, field: string, value: string, options: string[], compact?: boolean, display?: string) => {
     const isEd = editing?.id === id && editing?.field === field
     if (isEd) {
       return (
@@ -494,8 +504,8 @@ export default function EstadoBancario() {
     }
     return (
       <td key={field} className="px-2 py-2 text-sm" onClick={() => setEditing({ id, field })}>
-        <span className="cursor-pointer rounded bg-slate-100 px-2 py-0.5 text-xs font-medium hover:bg-slate-200">
-          {value} ▾
+        <span title={value} className="cursor-pointer rounded bg-slate-100 px-2 py-0.5 text-xs font-medium hover:bg-slate-200">
+          {display || value} ▾
         </span>
       </td>
     )
@@ -586,7 +596,7 @@ export default function EstadoBancario() {
     return (
     <tr key={t.id} className={`border-t border-slate-100 ${kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
-      {selCell(t.id, 'bank_account', t.bank_account, lists.accounts)}
+      {selCell(t.id, 'bank_account', t.bank_account, lists.accounts, false, acctShort(t.bank_account))}
       {txtCell(t.id, 'detail', t.detail, { display: shortDetail(t.detail) })}
       {selCell(t.id, 'category', t.category, lists.categories, true)}
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES, true)}
@@ -1175,7 +1185,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
     <tr key={r.id + r.kind} className={`border-t border-slate-100 ${r.kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(r.id, 'date', r.date, { type: 'date', display: fmtDate(r.date) })}
       {txtCell(r.id, 'detail', r.detail, { display: shortDetail(r.detail) })}
-      <td className="px-2 py-2 text-sm text-slate-500">{r.account}</td>
+      <td className="px-2 py-2 text-sm text-slate-500" title={r.account}>{acctShort(r.account)}</td>
       {r.kind === 'real' ? (
         <>
           {txtCell(r.id, 'debit', r.dReal, { type: 'number', right: true, display: r.dReal ? money(r.dReal) : '' })}

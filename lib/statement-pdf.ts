@@ -248,12 +248,7 @@ export async function generateStatementPDF(
   const bytes = await doc.save()
   const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = fname
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 8000)
-  return fname
+  // La URL vive 10 minutos: suficiente para descargarlo desde el mensaje del chat.
+  setTimeout(() => URL.revokeObjectURL(url), 600000)
+  return { fname, url }
 }

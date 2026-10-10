@@ -8,11 +8,21 @@ type MonthData = { ym: string; txs: any[]; proj: any[]; linked: Set<string> }
 const money = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
 
+const moneyK = (v: number) => {
+  const a = Math.abs(v)
+  if (a >= 1000) return `$${(v / 1000).toFixed(a >= 20000 ? 0 : 1)}k`
+  return `$${Math.round(v)}`
+}
+
 const MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-const DONUT_COLORS = ['#147d6b', '#56b8a5', '#e4a24f', '#b76532', '#7c8db0', '#dce5ee']
+const BLUE = '#3b82f6'
+const ORANGE = '#f59e0b'
+const GREEN = '#16a34a'
+const GREEN_LINE = '#22c55e'
+const INK = '#1e293b'
+const DONUT_COLORS = ['#3b82f6', '#f59e0b', '#eab308', '#8b5cf6', '#14b8a6', '#ef4444', '#94a3b8']
 
 // Etiqueta corta: banco + últimos 4 dígitos (igual que el Journal)
-// Recibe el objeto cuenta completo.
 const shortBank = (a: Acct) => {
   const inst = (a.institution || '').replace(/\s+(Online|Credit Union|Bank)$/i, '')
   const mask = (a.name.match(/(\d{4})\s*$/) || [])[1]
@@ -27,15 +37,72 @@ const fmtD = (iso: string) => {
   return `${MES[m - 1]} ${String(d).padStart(2, '0')}`
 }
 
-function Kpi({ label, value, detail, accent }: { label: string; value: string; detail: string; accent?: string }) {
+const iconProps = {
+  width: 34,
+  height: 34,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: INK,
+  strokeWidth: 1.8,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+}
+const IBar = (
+  <svg {...iconProps}>
+    <line x1="5" y1="20" x2="5" y2="12" />
+    <line x1="11" y1="20" x2="11" y2="4" />
+    <line x1="17" y1="20" x2="17" y2="9" />
+  </svg>
+)
+const ICart = (
+  <svg {...iconProps}>
+    <circle cx="9" cy="20" r="1.6" />
+    <circle cx="17" cy="20" r="1.6" />
+    <path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6" />
+  </svg>
+)
+const IDb = (
+  <svg {...iconProps}>
+    <ellipse cx="12" cy="5.5" rx="7.5" ry="2.8" />
+    <path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13" />
+    <path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8" />
+  </svg>
+)
+const IPct = (
+  <svg {...iconProps}>
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <circle cx="8.5" cy="8.5" r="2.5" />
+    <circle cx="15.5" cy="15.5" r="2.5" />
+  </svg>
+)
+
+function Kpi({
+  icon,
+  label,
+  value,
+  sub,
+  valueColor,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  sub: string
+  valueColor: string
+}) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className={`mt-2 text-2xl font-bold ${accent || 'text-[#10243f]'}`}>{value}</p>
-      <p className="mt-1 text-[11px] text-slate-400">{detail}</p>
+    <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="shrink-0">{icon}</div>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className={`mt-0.5 text-[27px] font-extrabold leading-tight ${valueColor}`}>{value}</p>
+        <p className="mt-0.5 truncate text-[11px] text-slate-400">{sub}</p>
+      </div>
     </div>
   )
 }
+
+const card = 'rounded-xl border border-slate-200 bg-white p-5 shadow-sm'
+const h3 = 'text-[15px] font-bold text-slate-800'
 
 export default function ProjectionsPanel() {
   const [accounts, setAccounts] = useState<Acct[]>([])
@@ -88,11 +155,12 @@ export default function ProjectionsPanel() {
     [accounts]
   )
 
-  const proj = useMemo(() => data.flatMap((d) => d.proj).sort((a, b) => String(a.date).localeCompare(String(b.date))), [data])
-  const projIncome = useMemo(() => proj.filter((p) => Number(p.credit) > 0), [proj])
-  const projExpenses = useMemo(() => proj.filter((p) => Number(p.debit) > 0), [proj])
-  const totPI = useMemo(() => projIncome.reduce((s, p) => s + Number(p.credit), 0), [projIncome])
-  const totPE = useMemo(() => projExpenses.reduce((s, p) => s + Number(p.debit), 0), [projExpenses])
+  const proj = useMemo(
+    () => data.flatMap((d) => d.proj).sort((a, b) => String(a.date).localeCompare(String(b.date))),
+    [data]
+  )
+  const totPI = useMemo(() => proj.reduce((s, p) => s + Number(p.credit || 0), 0), [proj])
+  const totPE = useMemo(() => proj.reduce((s, p) => s + Number(p.debit || 0), 0), [proj])
   const grandTotal = bankTotal + totPI - totPE
 
   const monthly = useMemo(
@@ -124,196 +192,236 @@ export default function ProjectionsPanel() {
   }, [monthly])
 
   const maxBar = Math.max(1, ...monthly.flatMap((m) => [m.inc, m.exp]))
+  const barTicks = [maxBar, (maxBar * 3) / 4, maxBar / 2, maxBar / 4, 0]
+
   const nets = monthly.map((m) => m.inc - m.exp)
   const maxNet = Math.max(1, ...nets.map(Math.abs))
+  const nPts = nets.map((n, i) => ({
+    x: nets.length > 1 ? (i / (nets.length - 1)) * 300 : 150,
+    y: 95 - (n / maxNet) * 78,
+  }))
+  const nLine = nPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+  const nArea = `0,190 ${nLine} 300,190`
+  const netTicks = [maxNet, maxNet / 2, 0, -maxNet / 2, -maxNet]
+
+  const donutSegs = catTotal.slice(0, 6) as [string, number][]
+  const donutTotal = donutSegs.reduce((s, kv) => s + kv[1], 0)
+  const R = 70
+  const CIRC = 2 * Math.PI * R
+  let dAcc = 0
+  const dSegs = donutSegs.map((kv, i) => {
+    const k = kv[0]
+    const v = kv[1]
+    const rot = donutTotal > 0 ? (dAcc / donutTotal) * 360 : 0
+    dAcc += v
+    return {
+      k,
+      v,
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+      dash: donutTotal > 0 ? `${((v / donutTotal) * CIRC).toFixed(1)} ${CIRC.toFixed(1)}` : `0 ${CIRC.toFixed(1)}`,
+      rot,
+    }
+  })
 
   if (loading) {
     return (
       <div>
-        <h2 className="text-[28px] font-bold tracking-tight sm:text-[32px]">Proyecciones</h2>
-        <p className="mt-4 text-sm text-slate-400">Cargando datos del 2026…</p>
+        <h2 className="text-[26px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
+        <p className="mt-1 text-sm text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
+        <p className="mt-6 text-sm text-slate-400">Cargando datos del 2026…</p>
       </div>
     )
   }
 
-  const donutTop = catTotal.slice(0, 5)
-  const donutOther = catTotal.slice(5).reduce((s, [, v]) => s + v, 0)
-  const donutSegs = [...donutTop, ...(donutOther > 0 ? [['Otros', donutOther] as [string, number]] : [])]
-  const donutTotal = donutSegs.reduce((s, [, v]) => s + v, 0)
-  let acc = 0
-  const donutBg =
-    donutTotal > 0
-      ? `conic-gradient(${donutSegs
-          .map(([ , v], i) => {
-            const from = (acc / donutTotal) * 100
-            acc += v
-            const to = (acc / donutTotal) * 100
-            return `${DONUT_COLORS[i % DONUT_COLORS.length]} ${from}% ${to}%`
-          })
-          .join(', ')})`
-      : '#eef2f7'
-
   return (
     <div>
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-[#167b6a]">
-        <span>📊</span> Vista anual
-      </div>
-      <h2 className="text-[28px] font-bold tracking-tight sm:text-[32px]">Proyecciones</h2>
-      <p className="mt-1 max-w-3xl text-sm text-slate-500">
-        Balance bancario final + proyecciones de ingresos y gastos. Todo el 2026 acumulado.
-      </p>
+      <h2 className="text-[26px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
+      <p className="mt-1 text-sm text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
 
-      {/* Totales arriba */}
-      <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi label="Balance bancario" value={money(bankTotal)} detail={`${accounts.length} cuentas · saldo final`} />
-        <Kpi label="Ingresos proyectados" value={money(totPI)} detail={`${projIncome.length} movimientos`} accent="text-[#147d6b]" />
-        <Kpi label="Gastos proyectados" value={money(totPE)} detail={`${projExpenses.length} movimientos`} accent="text-[#b76532]" />
-        <Kpi label="Balance total" value={money(grandTotal)} detail="Banco + ingresos − gastos" accent={grandTotal < 0 ? 'text-red-600' : 'text-[#10243f]'} />
+      {/* KPIs */}
+      <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Kpi icon={IBar} label="Ingresos proyectados" value={money(totPI)} sub={`${proj.filter((p) => Number(p.credit) > 0).length} movimientos`} valueColor="text-[#16a34a]" />
+        <Kpi icon={ICart} label="Gastos proyectados" value={money(totPE)} sub={`${proj.filter((p) => Number(p.debit) > 0).length} movimientos`} valueColor="text-slate-800" />
+        <Kpi icon={IDb} label="Balance bancario" value={money(bankTotal)} sub={`${accounts.length} cuentas · saldo final`} valueColor="text-slate-800" />
+        <Kpi icon={IPct} label="Balance total" value={money(grandTotal)} sub="Banco + ingresos − gastos" valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} />
       </section>
 
-      {/* Gráficos */}
-      <section className="mt-6 grid gap-5 xl:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="font-bold">Ingresos vs gastos por mes</h3>
-          <p className="mt-1 text-xs text-slate-500">Real 2026, sin transferencias internas</p>
-          <div className="mt-6 flex h-[190px] items-end gap-2 sm:gap-3">
-            {monthly.map((m) => (
-              <div key={m.ym} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
-                <div className="flex h-full w-full items-end justify-center gap-1">
-                  <div className="w-[42%] rounded-t bg-[#147d6b]" style={{ height: `${(m.inc / maxBar) * 100}%` }} title={`Ingresos ${money(m.inc)}`} />
-                  <div className="w-[42%] rounded-t bg-[#e4a24f]" style={{ height: `${(m.exp / maxBar) * 100}%` }} title={`Gastos ${money(m.exp)}`} />
-                </div>
-                <span className="text-[9px] font-medium text-slate-500">{MES[Number(m.ym.slice(5)) - 1]}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center gap-4 text-[11px] font-semibold">
-            <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#147d6b]" /> Ingresos</span>
-            <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-[#e4a24f]" /> Gastos</span>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="font-bold">Tendencia neta</h3>
-          <p className="mt-1 text-xs text-slate-500">Ingresos − gastos por mes</p>
-          <svg viewBox="0 0 300 190" className="mt-4 h-[190px] w-full" preserveAspectRatio="none">
-            <line x1="0" y1="95" x2="300" y2="95" stroke="#e2e8f0" strokeDasharray="4 4" />
-            <polyline
-              fill="none"
-              stroke="#147d6b"
-              strokeWidth="2.5"
-              points={nets.map((n, i) => `${(i / Math.max(1, nets.length - 1)) * 300},${95 - (n / maxNet) * 80}`).join(' ')}
-            />
-            {nets.map((n, i) => (
-              <circle key={i} cx={(i / Math.max(1, nets.length - 1)) * 300} cy={95 - (n / maxNet) * 80} r="4" fill={n < 0 ? '#b76532' : '#147d6b'} />
-            ))}
-          </svg>
-          <div className="mt-2 flex justify-between text-[9px] font-medium text-slate-500">
-            <span>{MES[0]}</span>
-            <span>{MES[nets.length - 1]}</span>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="font-bold">Gastos por categoría</h3>
-          <p className="mt-1 text-xs text-slate-500">Acumulado 2026</p>
-          <div className="mx-auto mt-5 grid size-[170px] place-items-center rounded-full" style={{ background: donutBg }}>
-            <div className="grid size-[112px] place-items-center rounded-full bg-white text-center">
-              <div>
-                <div className="text-[10px] text-slate-400">Total</div>
-                <div className="text-lg font-bold">{money(donutTotal)}</div>
-              </div>
+      {/* Barras + tendencia */}
+      <section className="mt-5 grid gap-5 xl:grid-cols-5">
+        <div className={`${card} xl:col-span-3`}>
+          <h3 className={h3}>Ingresos vs gastos por mes</h3>
+          <div className="mt-4 flex gap-2">
+            <div className="flex h-[190px] w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-slate-400">
+              {barTicks.map((t) => (
+                <span key={t}>{moneyK(t)}</span>
+              ))}
             </div>
-          </div>
-          <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-2">
-            {donutSegs.map(([k, v], i) => (
-              <div key={k} className="flex items-center gap-2">
-                <i className="size-2.5 shrink-0 rounded-full" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
-                <div className="min-w-0">
-                  <p className="truncate text-[11px] text-slate-500">{k}</p>
-                  <p className="text-xs font-bold">{donutTotal > 0 ? Math.round((v / donutTotal) * 100) : 0}%</p>
+            <div className="min-w-0 flex-1">
+              <div className="relative">
+                <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+                  {barTicks.map((t) => (
+                    <div key={t} className="border-t border-slate-100" />
+                  ))}
+                </div>
+                <div className="relative flex h-[190px] items-end gap-1 sm:gap-2">
+                  {monthly.map((m) => (
+                    <div key={m.ym} className="flex h-full flex-1 items-end justify-center gap-1">
+                      <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.inc / maxBar) * 100}%`, background: BLUE }} title={`Ingresos ${money(m.inc)}`} />
+                      <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.exp / maxBar) * 100}%`, background: ORANGE }} title={`Gastos ${money(m.exp)}`} />
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Ventana grande con scroll: register del año */}
-      <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 p-5">
-          <h3 className="font-bold">Register 2026</h3>
-          <p className="mt-1 text-xs text-slate-500">
-            Balances finales por cuenta + proyecciones. Desliza dentro de la ventana — los gráficos quedan visibles.
-          </p>
-        </div>
-        <div className="h-[62vh] overflow-y-auto">
-          <div className="divide-y divide-slate-100">
-            <div className="p-5">
-              <p className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">Cuentas bancarias · saldo final</p>
-              <ul className="divide-y divide-slate-50">
-                {accounts.map((a) => (
-                  <li key={a.name} className="flex items-center justify-between py-2.5 text-sm">
-                    <span className="font-medium text-slate-700">{shortBank(a)}</span>
-                    <span className={`font-mono font-bold ${(a.current_balance ?? 0) < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                      {a.current_balance == null ? '–' : money(a.current_balance)}
-                    </span>
-                  </li>
+              <div className="mt-1 flex gap-1 sm:gap-2">
+                {monthly.map((m) => (
+                  <div key={m.ym} className="flex-1 text-center text-[9px] font-medium text-slate-500">
+                    {MES[Number(m.ym.slice(5)) - 1]}
+                  </div>
                 ))}
-              </ul>
-              <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-bold">
-                <span>Total banco</span>
-                <span className={`font-mono ${bankTotal < 0 ? 'text-red-600' : ''}`}>{money(bankTotal)}</span>
               </div>
             </div>
-            <div className="p-5">
-              <p className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
-                Proyecciones de ingresos · <span className="text-[#147d6b]">{money(totPI)}</span>
-              </p>
-              {projIncome.length === 0 ? (
-                <p className="py-3 text-center text-sm text-slate-400">Sin ingresos proyectados.</p>
-              ) : (
-                <ul className="divide-y divide-slate-50">
-                  {projIncome.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-slate-700">{p.detail}</p>
-                        <p className="text-[11px] text-slate-400">{fmtD(p.date)} · {p.frequency}</p>
-                      </div>
-                      <span className="shrink-0 font-mono font-bold text-[#147d6b]">+{money(Number(p.credit))}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="p-5">
-              <p className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-400">
-                Proyecciones de gastos · <span className="text-[#b76532]">{money(totPE)}</span>
-              </p>
-              {projExpenses.length === 0 ? (
-                <p className="py-3 text-center text-sm text-slate-400">Sin gastos proyectados.</p>
-              ) : (
-                <ul className="divide-y divide-slate-50">
-                  {projExpenses.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium text-slate-700">{p.detail}</p>
-                        <p className="text-[11px] text-slate-400">{fmtD(p.date)} · {p.frequency}</p>
-                      </div>
-                      <span className="shrink-0 font-mono font-bold text-[#b76532]">−{money(Number(p.debit))}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+          </div>
+          <div className="mt-3 flex items-center gap-5 text-xs font-semibold text-slate-600">
+            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-[3px]" style={{ background: BLUE }} /> Ingresos</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-[3px]" style={{ background: ORANGE }} /> Gastos</span>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-[#147d6b] bg-[#f0faf8] p-5">
-          <div>
-            <p className="text-sm font-bold text-[#10243f]">BALANCE TOTAL</p>
-            <p className="text-[11px] text-slate-500">Banco + ingresos proyectados − gastos proyectados</p>
+
+        <div className={`${card} xl:col-span-2`}>
+          <h3 className={h3}>Tendencia neta</h3>
+          <div className="mt-4 flex gap-2">
+            <div className="flex h-[190px] w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-slate-400">
+              {netTicks.map((t) => (
+                <span key={t}>{moneyK(t)}</span>
+              ))}
+            </div>
+            <svg viewBox="0 0 300 190" className="h-[190px] min-w-0 flex-1" preserveAspectRatio="none">
+              <line x1="0" y1="95" x2="300" y2="95" stroke="#e2e8f0" strokeDasharray="4 4" />
+              <polygon points={nArea} fill={GREEN_LINE} opacity="0.12" />
+              <polyline points={nLine} fill="none" stroke={GREEN_LINE} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+              {nPts.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r="4" fill={nets[i] < 0 ? '#ef4444' : GREEN} stroke="#fff" strokeWidth="1.5" />
+              ))}
+            </svg>
           </div>
-          <p className={`font-mono text-2xl font-bold ${grandTotal < 0 ? 'text-red-600' : 'text-[#10243f]'}`}>{money(grandTotal)}</p>
+          <div className="mt-1 flex justify-between text-[10px] font-medium text-slate-500">
+            <span>{MES[0]}</span>
+            <span>{nets.length > 0 ? MES[nets.length - 1] : ''}</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Register + dona */}
+      <section className="mt-5 grid gap-5 xl:grid-cols-5">
+        <div className={`${card} flex flex-col xl:col-span-3`}>
+          <h3 className={h3}>Full Register 2026</h3>
+          <p className="mt-1 text-xs text-slate-500">Balances finales por cuenta + proyecciones. Desliza dentro de la caja.</p>
+          <div className="mt-3 h-[62vh] overflow-y-auto xl:h-[440px]">
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">Cuentas · saldo final</p>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] text-slate-400">
+                  <th className="py-2 pr-2 font-medium">Cuenta</th>
+                  <th className="py-2 font-medium text-right">Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((a) => {
+                  const b = a.current_balance
+                  return (
+                    <tr key={a.name} className="border-t border-slate-100">
+                      <td className="py-2.5 pr-2 font-medium text-slate-700">{shortBank(a)}</td>
+                      <td className={`py-2.5 text-right font-semibold ${(b ?? 0) < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                        {b == null ? '–' : money(b)}
+                      </td>
+                    </tr>
+                  )
+                })}
+                <tr className="border-t-2 border-slate-200">
+                  <td className="py-2.5 pr-2 font-bold text-slate-800">Total banco</td>
+                  <td className={`py-2.5 text-right font-bold ${bankTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(bankTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <p className="mb-1 mt-6 text-[11px] font-bold uppercase tracking-widest text-slate-400">Proyecciones</p>
+            {proj.length === 0 ? (
+              <p className="py-4 text-center text-sm text-slate-400">Sin proyecciones registradas.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] text-slate-400">
+                    <th className="py-2 pr-2 font-medium">Fecha</th>
+                    <th className="py-2 pr-2 font-medium">Detalle</th>
+                    <th className="py-2 pr-2 font-medium">Tipo</th>
+                    <th className="py-2 font-medium text-right">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {proj.map((p) => {
+                    const isInc = Number(p.credit) > 0
+                    return (
+                      <tr key={p.id} className="border-t border-slate-100">
+                        <td className="whitespace-nowrap py-2.5 pr-2 text-slate-500">{fmtD(p.date)}</td>
+                        <td className="py-2.5 pr-2">
+                          <p className="font-medium text-slate-700">{p.detail}</p>
+                          <p className="text-[11px] text-slate-400">{p.frequency}</p>
+                        </td>
+                        <td className={`whitespace-nowrap py-2.5 pr-2 font-semibold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
+                          {isInc ? 'Ingreso' : 'Gasto'}
+                        </td>
+                        <td className={`whitespace-nowrap py-2.5 text-right font-semibold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
+                          {isInc ? '+' : '−'}{money(Number(isInc ? p.credit : p.debit))}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-3">
+            <p className="text-sm font-extrabold text-slate-800">BALANCE TOTAL</p>
+            <p className={`text-xl font-extrabold ${grandTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(grandTotal)}</p>
+          </div>
+        </div>
+
+        <div className={`${card} xl:col-span-2`}>
+          <h3 className={h3}>Gastos por categoría</h3>
+          <div className="relative mx-auto mt-5 size-[172px]">
+            <svg viewBox="0 0 180 180" className="size-full -rotate-0">
+              <circle cx="90" cy="90" r={R} fill="none" stroke="#eef2f7" strokeWidth="26" />
+              {dSegs.map((s) => (
+                <circle
+                  key={s.k}
+                  cx="90"
+                  cy="90"
+                  r={R}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="26"
+                  strokeDasharray={s.dash}
+                  transform={`rotate(${s.rot - 90} 90 90)`}
+                />
+              ))}
+            </svg>
+            <div className="absolute inset-0 grid place-items-center text-center">
+              <div>
+                <div className="text-lg font-extrabold text-slate-800">{money(donutTotal)}</div>
+                <div className="text-[10px] text-slate-400">Total gastos</div>
+              </div>
+            </div>
+          </div>
+          <div className="mt-5 space-y-2">
+            {dSegs.map((s) => (
+              <div key={s.k} className="flex items-center gap-2 text-sm">
+                <i className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
+                <span className="min-w-0 flex-1 truncate text-slate-500">{s.k}</span>
+                <span className="font-bold text-slate-700">{donutTotal > 0 ? Math.round((s.v / donutTotal) * 100) : 0}%</span>
+              </div>
+            ))}
+            {dSegs.length === 0 && <p className="py-4 text-center text-sm text-slate-400">Sin gastos registrados.</p>}
+          </div>
         </div>
       </section>
     </div>

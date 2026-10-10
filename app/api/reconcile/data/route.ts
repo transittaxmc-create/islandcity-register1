@@ -134,7 +134,7 @@ export async function PATCH(req: NextRequest) {
     const sb = supabaseServer()
     const b = await req.json()
     const { id, field, value } = b as { id: string; field: string; value: any }
-    const allowed = ['date', 'bank_account', 'detail', 'category', 'frequency', 'debit', 'credit']
+    const allowed = ['date', 'bank_account', 'detail', 'category', 'frequency', 'debit', 'credit', 'pb_class']
     if (!allowed.includes(field)) return NextResponse.json({ error: 'Campo no permitido' }, { status: 400 })
 
     if (String(id).includes('::')) {

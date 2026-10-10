@@ -461,7 +461,7 @@ export default function EstadoBancario() {
     return (
       <td key={field} className={cls} onClick={() => setEditing({ id, field })}>
         <span
-          className={`cursor-text rounded px-1 py-0.5 hover:bg-slate-100 ${isDetail ? 'block max-w-[150px] truncate' : ''}`}
+          className={`cursor-text rounded py-0.5 hover:bg-slate-100 ${isDetail ? 'block max-w-[150px] truncate' : ''}`}
           title={isDetail ? String(value ?? '') : undefined}
         >
           {opts.display ?? String(value ?? '')}
@@ -495,7 +495,7 @@ export default function EstadoBancario() {
         <td key={field} className="px-1 py-2 text-center align-middle" onClick={() => setEditing({ id, field })}>
           <span
             title={value || 'None selected'}
-            className="block w-[46px] cursor-pointer truncate text-[9px] font-medium leading-tight text-slate-600 hover:text-slate-900"
+            className="mx-auto block w-[46px] cursor-pointer truncate text-center text-[9px] font-medium leading-tight text-slate-600 hover:text-slate-900"
           >
             {value || '–'}
           </span>
@@ -504,7 +504,7 @@ export default function EstadoBancario() {
     }
     return (
       <td key={field} className="px-2 py-2 text-sm" onClick={() => setEditing({ id, field })}>
-        <span title={value} className="cursor-pointer rounded bg-slate-100 px-2 py-0.5 text-xs font-medium hover:bg-slate-200">
+        <span title={value} className="cursor-pointer rounded bg-slate-100 py-0.5 text-xs font-medium hover:bg-slate-200">
           {display || value} ▾
         </span>
       </td>
@@ -896,7 +896,7 @@ export default function EstadoBancario() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+                <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <th className="w-[74px] px-2 py-2.5 font-semibold text-left align-middle">Date</th>
                   <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Account</th>
                   <th className="w-[150px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
@@ -1234,7 +1234,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
+                <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="w-[92px] px-2 py-2.5 font-semibold text-left align-middle">Date</th>
                   <th className="w-[180px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
                   <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Account</th>

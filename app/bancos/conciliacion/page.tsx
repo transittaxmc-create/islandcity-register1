@@ -358,7 +358,7 @@ export default function EstadoBancario() {
     return (
       <td key={field} className={cls} onClick={() => setEditing({ id, field })}>
         <span
-          className={`cursor-text rounded px-1 py-0.5 hover:bg-slate-100 ${isDetail ? 'block max-w-[180px] truncate' : ''}`}
+          className={`cursor-text rounded px-1 py-0.5 hover:bg-slate-100 ${isDetail ? 'block max-w-[150px] truncate' : ''}`}
           title={isDetail ? String(value ?? '') : undefined}
         >
           {opts.display ?? String(value ?? '')}
@@ -611,12 +611,12 @@ export default function EstadoBancario() {
                 <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
                   <th className="w-[74px] px-2 py-2.5 font-semibold text-left align-middle">Date</th>
                   <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Account</th>
-                  <th className="w-[170px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
+                  <th className="w-[150px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
                   <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Category">Cat.</th>
                   <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Frequency">Freq.</th>
-                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Debit</th>
-                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Credit</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>
+                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Debit</th>
+                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Credit</th>
+                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>
                   <th className="w-[32px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>

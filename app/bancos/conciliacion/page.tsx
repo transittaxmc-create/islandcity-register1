@@ -94,7 +94,7 @@ export default function EstadoBancario() {
   const [acctPop, setAcctPop] = useState(false)
   // Register por cuenta: filtro + balances reales + transferencias
   const [acctFilter, setAcctFilter] = useState('all')
-  const [acctMeta, setAcctMeta] = useState<{ name: string; current_balance: number | null; institution: string | null }[]>([])
+  const [acctMeta, setAcctMeta] = useState<{ name: string; current_balance: number | null; institution: string | null; display_order: number }[]>([])
   const [links, setLinks] = useState<any[]>([])
   const [showTransfers, setShowTransfers] = useState(false)
   const [transferCands, setTransferCands] = useState<any[]>([])
@@ -159,7 +159,7 @@ export default function EstadoBancario() {
         const acc = (j.accounts || []).map((x: any) => x.name).filter(Boolean)
         const cat = (j.categories || []).map((x: any) => x.name).filter(Boolean)
         setLists({ accounts: acc.length ? acc : FALLBACK_ACCOUNTS, categories: cat.length ? cat : FALLBACK_CATEGORIES })
-        setAcctMeta((j.accounts || []).map((x: any) => ({ name: x.name, current_balance: x.current_balance ?? null, institution: x.institution || null })).filter((x: any) => x.name))
+        setAcctMeta((j.accounts || []).map((x: any) => ({ name: x.name, current_balance: x.current_balance ?? null, institution: x.institution || null, display_order: x.display_order ?? 100 })).filter((x: any) => x.name))
       }
     }).catch(() => {})
   }, [load])
@@ -192,8 +192,9 @@ export default function EstadoBancario() {
   const acctNames = useMemo(() => {
     const s = new Set<string>()
     for (const t of transactions) if (t.bank_account) s.add(t.bank_account)
-    return [...s].sort()
-  }, [transactions])
+    const orderOf = (n: string) => acctMeta.find((a) => a.name === n)?.display_order ?? 100
+    return [...s].sort((a, b) => orderOf(a) - orderOf(b) || a.localeCompare(b))
+  }, [transactions, acctMeta])
 
   const totals = useMemo(() => {
     let dReal = 0, cReal = 0, gProy = 0, iProy = 0
@@ -371,8 +372,9 @@ export default function EstadoBancario() {
             months.push({ ym, txs: (j && j.transactions) || [] })
           }
           const inst: Record<string, string> = {}
-          for (const a of acctMeta) if (a.institution) inst[a.name] = a.institution
-          const fname = await pdf.generateStatementPDF(months, inst, range.from, range.to)
+          const ord: Record<string, number> = {}
+          for (const a of acctMeta) { if (a.institution) inst[a.name] = a.institution; ord[a.name] = a.display_order }
+          const fname = await pdf.generateStatementPDF(months, inst, range.from, range.to, ord)
           const total = months.reduce((s, m) => s + m.txs.length, 0)
           setChatMsgs((prev) => [...prev, { role: 'ai', text: `PDF generado: ${fname} (${total} movimientos, ${pdf.rangeLabel(range.from, range.to)}). Revísalo y me dices si quieres ajustar algo.` }])
         }
@@ -607,12 +609,11 @@ export default function EstadoBancario() {
     )
   }
 
-  // Balances por cuenta (solo las que tienen balance distinto de cero)
+  // Balances por cuenta (solo las que tienen balance distinto de cero), en el orden que Miguel definió
   const accountBalances = useMemo(() => {
     return acctMeta
       .filter((a) => a.current_balance != null && Number(a.current_balance) !== 0)
       .map((a) => [a.name, { balance: Number(a.current_balance) }] as [string, { balance: number }])
-      .sort((a, b) => Math.abs(b[1].balance) - Math.abs(a[1].balance))
   }, [acctMeta])
 
   const allRows = useMemo(() => {

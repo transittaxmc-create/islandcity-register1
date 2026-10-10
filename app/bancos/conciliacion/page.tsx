@@ -3,7 +3,7 @@
 // app/bancos/conciliacion/page.tsx — Estado Bancario (Dual Register).
 // Libro Diario unificado: filas REALES + PROYECTADAS distinguibles.
 // Solo lo real mueve el balance real. Reglas recurrentes generan las filas futuras.
-// "Ver registro completo" abre el mes entero en pantalla completa (overlay, misma página).
+// "View full register" opens the whole month fullscreen (overlay, same page).
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -13,7 +13,7 @@ const FREQUENCIES = ['Un solo pago', 'Diaria', 'Semanal', 'Mensual', 'Anual']
 const FALLBACK_ACCOUNTS = ['Cuenta principal']
 
 const money = (v: number) =>
-  new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD' }).format(v || 0)
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
 
 const todayISO = () => {
   const d = new Date()
@@ -22,7 +22,7 @@ const todayISO = () => {
 
 const fmtDate = (iso: string) => {
   const [y, m, dd] = iso.split('-').map(Number)
-  return new Date(y, m - 1, dd).toLocaleDateString('es-US', { day: '2-digit', month: 'short' })
+  return new Date(y, m - 1, dd).toLocaleDateString('en-US', { day: '2-digit', month: 'short' })
 }
 
 type Tx = {
@@ -108,7 +108,7 @@ export default function EstadoBancario() {
       setTransactions(j.transactions || [])
       setProjected(j.projected || [])
     } catch (e: any) {
-      setOcrMsg('Error cargando: ' + e.message)
+      setOcrMsg('Error loading: ' + e.message)
     }
     setLoading(false)
     setLoadedAt(Date.now())
@@ -122,11 +122,11 @@ export default function EstadoBancario() {
   const agoText = () => {
     if (!loadedAt) return '…'
     const m = Math.max(0, Math.round((nowTick - loadedAt) / 60000))
-    if (m < 1) return 'ahora mismo'
-    if (m === 1) return 'hace 1 min'
-    if (m < 60) return `hace ${m} min`
+    if (m < 1) return 'just now'
+    if (m === 1) return '1 min ago'
+    if (m < 60) return `${m} min ago`
     const h = Math.round(m / 60)
-    return h === 1 ? 'hace 1 h' : `hace ${h} h`
+    return h === 1 ? '1 hr ago' : `${h} hr ago`
   }
 
   const ACCT_DOTS = ['#6366f1', '#10b981', '#f59e0b']
@@ -166,7 +166,7 @@ export default function EstadoBancario() {
   }
 
   async function delRow(id: string) {
-    if (!confirm('¿Borrar esta fila?')) return
+    if (!confirm('Delete this row?')) return
     await fetch(`/api/reconcile/data?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
     load()
   }
@@ -200,7 +200,7 @@ export default function EstadoBancario() {
 
   async function sendReceiptToOCR(f: File) {
     setOcrBusy(true)
-    setOcrMsg('Leyendo comprobante…')
+    setOcrMsg('Reading receipt…')
     try {
       const fd = new FormData()
       fd.append('file', f)
@@ -210,18 +210,18 @@ export default function EstadoBancario() {
       if (j.duplicate) {
         setOcrMsg('⚠️ ' + j.message)
       } else {
-        setOcrMsg(`Comprobante registrado: ${money(j.transaction.debit)} — ${j.transaction.detail}`)
+        setOcrMsg(`Receipt recorded: ${money(j.transaction.debit)} — ${j.transaction.detail}`)
         load()
       }
     } catch (e: any) {
-      setOcrMsg('No se pudo leer: ' + e.message)
+      setOcrMsg('Could not read: ' + e.message)
     }
     setOcrBusy(false)
   }
 
   // Importa el CSV del banco: oculta números de cuenta, no duplica.
   async function sendCSVToImport(f: File) {
-    setCsvMsg('Importando…')
+    setCsvMsg('Importing…')
     try {
       const fd = new FormData()
       fd.append('file', f)
@@ -232,10 +232,10 @@ export default function EstadoBancario() {
       if (j.imported) parts.push(`${j.imported} importados`)
       if (j.duplicates) parts.push(`${j.duplicates} duplicados omitidos`)
       if (j.skipped) parts.push(`${j.skipped} omitidos`)
-      setCsvMsg(parts.length ? '✓ ' + parts.join(' · ') : 'Sin movimientos nuevos.')
+      setCsvMsg(parts.length ? '✓ ' + parts.join(' · ') : 'No new transactions.')
       load()
     } catch (e: any) {
-      setCsvMsg('No se pudo importar: ' + e.message)
+      setCsvMsg('Could not import: ' + e.message)
     }
   }
 
@@ -243,30 +243,30 @@ export default function EstadoBancario() {
   async function requestSync() {
     if (syncing) return
     setSyncing(true)
-    setSyncMsg('Solicitando sincronización…')
+    setSyncMsg('Requesting sync…')
     try {
       const r = await fetch('/api/reconcile/sync-request', { method: 'POST' })
       const j = await r.json()
       if (j.error) throw new Error(j.error)
       const id = j.id
-      setSyncMsg('Sincronizando con el banco…')
+      setSyncMsg('Syncing with the bank…')
       // Consulta el estado cada 10 segundos (máx 5 minutos)
       for (let i = 0; i < 30; i++) {
         await new Promise((res) => setTimeout(res, 10000))
         const s = await fetch(`/api/reconcile/sync-request?id=${id}`).then((x) => x.json())
         if (s.status === 'done') {
           const res2: any = s.result || {}
-          setSyncMsg(`✓ Sincronizado: ${res2.imported || 0} nuevos · ${res2.duplicates || 0} duplicados`)
+          setSyncMsg(`✓ Synced: ${res2.imported || 0} new · ${res2.duplicates || 0} duplicates`)
           load()
           break
         }
         if (s.status === 'error') {
-          setSyncMsg('No se pudo sincronizar. Intenta de nuevo.')
+          setSyncMsg('Could not sync. Try again.')
           break
         }
       }
     } catch (e: any) {
-      setSyncMsg('No se pudo solicitar: ' + e.message)
+      setSyncMsg('Could not request: ' + e.message)
     }
     setSyncing(false)
   }
@@ -303,9 +303,9 @@ export default function EstadoBancario() {
       })
       const j = await r.json()
       if (j.pending?.length) {
-        setChatMsgs([...msgs, { role: 'ai', text: '¿Apruebas este cambio?', pending: j.pending } as ChatMsg])
+        setChatMsgs([...msgs, { role: 'ai', text: 'Do you approve this change?', pending: j.pending } as ChatMsg])
       } else {
-        setChatMsgs([...msgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'sin respuesta')) }])
+        setChatMsgs([...msgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'no response')) }])
       }
     } catch (e: any) {
       setChatMsgs([...msgs, { role: 'ai', text: 'No pude responder: ' + e.message }])
@@ -324,7 +324,7 @@ export default function EstadoBancario() {
         body: JSON.stringify({ proposals: pending }),
       })
       const j = await r.json()
-      setChatMsgs([...chatMsgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'sin respuesta')) }])
+      setChatMsgs([...chatMsgs, { role: 'ai', text: j.answer || ('Error: ' + (j.error || 'no response')) }])
       load() // recarga los datos
     } catch (e: any) {
       setChatMsgs([...chatMsgs, { role: 'ai', text: 'No pude aplicar: ' + e.message }])
@@ -391,10 +391,10 @@ export default function EstadoBancario() {
       return (
         <td key={field} className="px-1 py-2 text-center align-middle" onClick={() => setEditing({ id, field })}>
           <span
-            title={value || 'Sin seleccionar'}
-            className={`inline-grid size-5 cursor-pointer place-items-center rounded-full text-[11px] font-bold ${value ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-slate-100 text-slate-300'}`}
+            title={value || 'None selected'}
+            className="block cursor-pointer truncate text-[9px] font-medium leading-tight text-slate-600 hover:text-slate-900"
           >
-            {value ? '✓' : '–'}
+            {value || '–'}
           </span>
         </td>
       )
@@ -410,9 +410,9 @@ export default function EstadoBancario() {
 
   const badge = (kind: 'real' | 'proy') =>
     kind === 'real' ? (
-      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Real</span>
+      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Actual</span>
     ) : (
-      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">Proyectado</span>
+      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">Projected</span>
     )
 
   const journalRow = (t: Tx, kind: 'real' | 'proy') => (
@@ -432,10 +432,10 @@ export default function EstadoBancario() {
         <td className="px-2 py-2.5 align-middle"></td>
       )}
       <td className="px-2 py-2.5 text-right align-middle whitespace-nowrap">
-        <span title={t.reconciled ? 'Reconciliado' : isFromBank(t.detail, t.source) ? 'Del banco' : 'Manual/Escaneado'} className={`mr-1 inline-grid size-4 place-items-center rounded-full ${t.reconciled ? 'bg-emerald-500' : isFromBank(t.detail, t.source) ? 'bg-blue-500' : 'bg-amber-400'}`}>
+        <span title={t.reconciled ? 'Reconciled' : isFromBank(t.detail, t.source) ? 'From bank' : 'Manual/Scanned'} className={`mr-1 inline-grid size-4 place-items-center rounded-full ${t.reconciled ? 'bg-emerald-500' : isFromBank(t.detail, t.source) ? 'bg-blue-500' : 'bg-amber-400'}`}>
           {t.reconciled ? <span className="text-[8px] text-white">✓</span> : null}
         </span>
-        <button onClick={() => delRow(t.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Borrar">×</button>
+        <button onClick={() => delRow(t.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Delete">×</button>
       </td>
     </tr>
   )
@@ -488,20 +488,20 @@ export default function EstadoBancario() {
           <div className="mx-auto max-w-6xl px-4 py-6">
         {/* Encabezado */}
         <div className="mb-1 text-xs text-slate-400">
-          <Link href="/" className="hover:underline">Bancos y Cuentas</Link>
+          <Link href="/" className="hover:underline">Banks & Accounts</Link>
           <span className="mx-1">›</span>
-          <span className="font-semibold text-slate-600">Estado Bancario</span>
+          <span className="font-semibold text-slate-600">Bank Statement</span>
         </div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-bold text-[#0f172a]">Estado Bancario</h1>
+            <h1 className="text-[22px] font-bold text-[#0f172a]">Bank Statement</h1>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="relative flex size-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10b981] opacity-75" />
                 <span className="relative inline-flex size-2 rounded-full bg-[#10b981]" />
               </span>
-              <p className="text-[13px] text-[#64748b]">Resumen de {accountBalances.length} {accountBalances.length === 1 ? 'cuenta' : 'cuentas'} • Hoy</p>
-              <span className="rounded-full border border-[#e2e8f0] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#64748b]">EN VIVO • Actualizado {agoText()}</span>
+              <p className="text-[13px] text-[#64748b]">Summary of {accountBalances.length} {accountBalances.length === 1 ? 'account' : 'accounts'} • Today</p>
+              <span className="rounded-full border border-[#e2e8f0] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#64748b]">LIVE • Updated {agoText()}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -509,7 +509,7 @@ export default function EstadoBancario() {
               onClick={() => setChatOpen((v) => !v)}
               className={`rounded-xl px-3 py-2 text-sm font-bold ${chatOpen ? 'bg-[#40b9a1] text-[#10243f]' : 'bg-[#10243f] text-white'}`}
             >
-              💬 Preguntar
+              💬 Ask
             </button>
             <input
               type="month"
@@ -526,28 +526,28 @@ export default function EstadoBancario() {
             <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#eef2ff] text-[#6366f1]">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></svg>
             </span>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Balance real</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Real balance</p>
             <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#0f172a]">{money(realBalance)}</p>
           </div>
           <div className="relative h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#bbf7d0] bg-gradient-to-br from-[#f0fdf4] to-[#ecfdf5] p-[10px_12px]">
             <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#dcfce7] text-[#16a34a]">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
             </span>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#16a34a]">Ingresos reales</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#16a34a]">Real income</p>
             <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#065f46]">{money(totals.cReal)}</p>
           </div>
           <div className="relative h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#fecdd3] bg-gradient-to-br from-[#fef2f2] to-[#fff1f2] p-[10px_12px]">
             <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#fee2e2] text-[#e11d48]">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M19 12l-7 7-7-7" /></svg>
             </span>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#e11d48]">Gastos reales</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-[#e11d48]">Real expenses</p>
             <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#be123c]">{money(totals.dReal)}</p>
           </div>
           <div className="relative">
             <div className="h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white p-[10px_12px]">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Cuentas</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Accounts</p>
               <div className="mt-[2px] h-[36px] overflow-y-auto pr-1">
-                {accountBalances.length === 0 && <p className="text-[11px] text-slate-400">Sin balances</p>}
+                {accountBalances.length === 0 && <p className="text-[11px] text-slate-400">No balances</p>}
                 {accountBalances.slice(0, 3).map(([acct, v], i) => (
                   <div key={acct} className="mb-1 flex h-[18px] items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-1.5">
@@ -560,7 +560,7 @@ export default function EstadoBancario() {
               </div>
               {accountBalances.length > 3 && (
                 <button onClick={() => setAcctPop((v) => !v)} className="mt-[2px] text-[10px] font-bold text-[#6366f1] hover:underline">
-                  +{accountBalances.length - 3} más
+                  +{accountBalances.length - 3} more
                 </button>
               )}
             </div>
@@ -583,25 +583,25 @@ export default function EstadoBancario() {
         {/* Libro Diario */}
         <div className="mb-5 overflow-hidden rounded-2xl bg-white shadow-sm">
           <div className="flex items-center justify-between border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
-            <h2 className="text-[17px] font-bold text-[#10243f]">Libro Diario</h2>
+            <h2 className="text-[17px] font-bold text-[#10243f]">Journal</h2>
             <div className="flex items-center gap-3">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="🔍 Buscar…"
+                placeholder="🔍 Search…"
                 className="w-32 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-700 outline-none placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-[#40b9a1] sm:w-44"
               />
-              <button onClick={() => setSortNewest((v) => !v)} title={sortNewest ? 'Ver más antiguos primero' : 'Ver más recientes primero'} className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200">
-                {sortNewest ? '↓ Recientes' : '↑ Antiguos'}
+              <button onClick={() => setSortNewest((v) => !v)} title={sortNewest ? 'See oldest first' : 'See newest first'} className="rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200">
+                {sortNewest ? '↓ Newest' : '↑ Oldest'}
               </button>
               <button onClick={() => setShowFull(true)} className="text-xs font-semibold text-[#0f8a73] hover:underline">
-                Ver registro completo
+                View full register
               </button>
               <button
                 onClick={startAdd}
                 className="rounded-xl bg-[#40b9a1] px-3 py-1.5 text-sm font-bold text-[#10243f] hover:bg-[#35a48f]"
               >
-                + Añadir
+                + Add
               </button>
             </div>
           </div>
@@ -609,20 +609,20 @@ export default function EstadoBancario() {
             <table className="w-full min-w-[860px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                  <th className="w-[74px] px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
-                  <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
-                  <th className="w-[170px] px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
-                  <th className="w-[44px] px-1 py-2.5 font-semibold text-center align-middle" title="Categoría">Cat.</th>
-                  <th className="w-[44px] px-1 py-2.5 font-semibold text-center align-middle" title="Frecuencia">Frec.</th>
-                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Débito</th>
-                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Crédito</th>
+                  <th className="w-[74px] px-2 py-2.5 font-semibold text-left align-middle">Date</th>
+                  <th className="w-[100px] px-2 py-2.5 font-semibold text-left align-middle">Account</th>
+                  <th className="w-[170px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
+                  <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Category">Cat.</th>
+                  <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Frequency">Freq.</th>
+                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Debit</th>
+                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Credit</th>
                   <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>
                   <th className="w-[32px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Cargando…</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
                 ) : (
                   <>
                     {allRows.map((t) => journalRow(t, t._kind))}
@@ -637,7 +637,7 @@ export default function EstadoBancario() {
                           </select>
                         </td>
                         <td className="px-2 py-2">
-                          <input value={newRow.detail} onChange={(e) => setNewRow({ ...newRow, detail: e.target.value })} onBlur={(e) => suggestCategory(e.target.value)} placeholder="Detalle…" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
+                          <input value={newRow.detail} onChange={(e) => setNewRow({ ...newRow, detail: e.target.value })} onBlur={(e) => suggestCategory(e.target.value)} placeholder="Detail…" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
                         </td>
                         <td className="px-2 py-2">
                           <select value={newRow.category} onChange={(e) => setNewRow({ ...newRow, category: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
@@ -666,7 +666,7 @@ export default function EstadoBancario() {
                       </tr>
                     )}
                     {!allRows.length && !newRow && (
-                      <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos este mes. Toca <b>+ Añadir</b> para crear el primero.</td></tr>
+                      <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">No transactions this month. Tap <b>+ Add</b> to create the first one.</td></tr>
                     )}
                   </>
                 )}
@@ -674,15 +674,15 @@ export default function EstadoBancario() {
             </table>
           </div>
           <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400">
-            Toca cualquier celda para editarla — todo se guarda solo. Solo los movimientos <b>Reales</b> mueven el balance real.
+            Tap any cell to edit — everything saves automatically. Only <b>Actual</b> movements change the real balance.
           </p>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
           {/* Comprobantes OCR */}
           <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <h2 className="mb-1 font-bold">Comprobantes</h2>
-            <p className="mb-3 text-xs text-slate-400">Tómale foto al recibo: se lee solo y crea el gasto con el comprobante adjunto.</p>
+            <h2 className="mb-1 font-bold">Receipts</h2>
+            <p className="mb-3 text-xs text-slate-400">Snap a photo of the receipt: it is read automatically and creates the expense with the receipt attached.</p>
             <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) sendReceiptToOCR(f); e.target.value = '' }} />
             <button
@@ -690,43 +690,43 @@ export default function EstadoBancario() {
               disabled={ocrBusy}
               className="w-full rounded-xl border-2 border-dashed border-slate-200 py-6 text-sm font-semibold text-slate-500 hover:border-[#40b9a1] hover:text-[#0f8a73] disabled:opacity-50"
             >
-              {ocrBusy ? 'Leyendo…' : '📷 Escanear comprobante'}
+              {ocrBusy ? 'Reading…' : '📷 Scan receipt'}
             </button>
             {ocrMsg && <p className="mt-2 text-xs text-slate-500">{ocrMsg}</p>}
           </div>
 
           {/* Importar CSV del banco */}
           <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <h2 className="mb-1 font-bold">Banco sincronizado</h2>
-            <p className="mb-3 text-xs text-slate-400">Tus movimientos entran solos cada mañana. Toca para sincronizar ahora.</p>
+            <h2 className="mb-1 font-bold">Synced bank</h2>
+            <p className="mb-3 text-xs text-slate-400">Your transactions come in automatically every morning. Tap to sync now.</p>
             <button
               onClick={requestSync}
               disabled={syncing}
               className="mb-4 w-full rounded-xl bg-[#40b9a1] py-3 text-sm font-bold text-[#10243f] disabled:opacity-50"
             >
-              {syncing ? 'Sincronizando…' : '🔄 Sincronizar banco ahora'}
+              {syncing ? 'Syncing…' : '🔄 Sync bank now'}
             </button>
 
             {syncMsg && <p className="mb-3 text-xs text-slate-500">{syncMsg}</p>}
-            <h2 className="mb-1 font-bold">Importar del banco</h2>
-            <p className="mb-3 text-xs text-slate-400">Sube el CSV que bajas de tu banco. Los números de cuenta se ocultan: solo entran fecha, detalle y montos. No duplica lo que ya está.</p>
+            <h2 className="mb-1 font-bold">Import from bank</h2>
+            <p className="mb-3 text-xs text-slate-400">Upload the CSV you download from your bank. Account numbers are hidden: only date, detail and amounts come in. It will not duplicate what is already there.</p>
             <input ref={csvRef} type="file" accept=".csv,text/csv" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) sendCSVToImport(f); e.target.value = '' }} />
             <button
               onClick={() => csvRef.current?.click()}
               className="w-full rounded-xl border-2 border-dashed border-slate-200 py-6 text-sm font-semibold text-slate-500 hover:border-[#40b9a1] hover:text-[#0f8a73]"
             >
-              📤 Subir CSV del banco
+              📤 Upload bank CSV
             </button>
             {csvMsg && <p className="mt-2 text-xs text-slate-500">{csvMsg}</p>}
           </div>
 
           {/* Proyecciones y recurrentes */}
           <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <h2 className="mb-1 font-bold">Proyecciones y recurrentes</h2>
-            <p className="mb-3 text-xs text-slate-400">Las filas <span className="font-bold text-amber-600">Proyectado</span> del diario nacen de estas reglas.</p>
+            <h2 className="mb-1 font-bold">Projections & recurring</h2>
+            <p className="mb-3 text-xs text-slate-400">The journal <span className="font-bold text-amber-600">Projected</span> rows come from these rules.</p>
             {projected.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-400">Sin proyecciones este mes.</p>
+              <p className="py-4 text-center text-sm text-slate-400">No projections this month.</p>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {projected.slice(0, 6).map((p) => (
@@ -742,11 +742,11 @@ export default function EstadoBancario() {
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-[11px] text-slate-400">Para programar algo (ej. $400 diarios hasta fin de mes): <b>+ Añadir</b> → Frecuencia <b>Diaria</b>.</p>
+            <p className="mt-2 text-[11px] text-slate-400">To schedule something (e.g. $400 daily until end of month): <b>+ Add</b> → Frec. → <b>Diaria</b>.</p>
           </div>
         </div>
 
-        {/* ===== Registro Completo: overlay en pantalla completa sobre esta misma página ===== */}
+        {/* ===== Full Register: fullscreen overlay on this same page ===== */}
         {showFull && (
           <FullRegister
             month={month}
@@ -764,16 +764,16 @@ export default function EstadoBancario() {
           <aside className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-3xl border-t-2 border-slate-200 bg-white shadow-2xl lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-[370px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
-                <h3 className="font-bold">Asistente financiero</h3>
-                <p className="text-[11px] text-slate-400">Pregunta sobre tus números</p>
+                <h3 className="font-bold">Financial assistant</h3>
+                <p className="text-[11px] text-slate-400">Ask about your numbers</p>
               </div>
-              <button onClick={() => setChatOpen(false)} className="rounded-lg bg-slate-100 px-2 py-1 text-sm font-bold text-slate-500" aria-label="Cerrar chat">✕</button>
+              <button onClick={() => setChatOpen(false)} className="rounded-lg bg-slate-100 px-2 py-1 text-sm font-bold text-slate-500" aria-label="Close chat">✕</button>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3">
               {chatMsgs.length === 0 ? (
                 <div>
-                  <p className="mb-2 text-sm text-slate-500">¿En qué te ayudo? Prueba:</p>
-                  {['¿Cuánto gasté en gasolina este mes?', '¿Cuál es mi balance real?', 'Resume mis gastos por categoría'].map((s) => (
+                  <p className="mb-2 text-sm text-slate-500">How can I help? Try:</p>
+                  {['How much did I spend on gas this month?', 'What is my real balance?', 'Summarize my expenses by category'].map((s) => (
                     <button key={s} onClick={() => askAI(s)} className="mb-2 block w-full rounded-xl bg-slate-50 px-3 py-2 text-left text-sm text-slate-600 hover:bg-slate-100">
                       {s}
                     </button>
@@ -794,13 +794,13 @@ export default function EstadoBancario() {
                               onClick={() => { approveChange(m.pending!); setChatMsgs(chatMsgs.filter((_, k) => k !== i)) }}
                               className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"
                             >
-                              ✅ Aprobar
+                              ✅ Approve
                             </button>
                             <button
                               onClick={() => setChatMsgs(chatMsgs.filter((_, k) => k !== i))}
                               className="rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600"
                             >
-                              Cancelar
+                              Cancel
                             </button>
                           </div>
                         </div>
@@ -809,7 +809,7 @@ export default function EstadoBancario() {
                   </div>
                 ))
               )}
-              {chatBusy && <p className="text-xs text-slate-400">Pensando…</p>}
+              {chatBusy && <p className="text-xs text-slate-400">Thinking…</p>}
               <div ref={chatEndRef} />
             </div>
             <div className="border-t border-slate-100 p-3">
@@ -818,10 +818,10 @@ export default function EstadoBancario() {
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') askAI(chatInput) }}
-                  placeholder="Pregunta de finanzas…"
+                  placeholder="Finance question…"
                   className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 />
-                <button onClick={() => askAI(chatInput)} disabled={chatBusy} className="rounded-xl bg-[#40b9a1] px-4 py-2 text-sm font-bold text-[#10243f] disabled:opacity-50" aria-label="Enviar">
+                <button onClick={() => askAI(chatInput)} disabled={chatBusy} className="rounded-xl bg-[#40b9a1] px-4 py-2 text-sm font-bold text-[#10243f] disabled:opacity-50" aria-label="Send">
                   ➤
                 </button>
               </div>
@@ -846,7 +846,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
   const today = todayISO()
   const monthName = (() => {
     const [y, m] = month.split('-').map(Number)
-    return new Date(y, m - 1, 1).toLocaleDateString('es-US', { month: 'long', year: 'numeric' })
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   })()
 
   type FR = {
@@ -909,11 +909,11 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
       )}
       <td className="px-2 py-2">
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${r.kind === 'real' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-          {r.kind === 'real' ? 'Real' : 'Proyectado'}
+          {r.kind === 'real' ? 'Actual' : 'Projected'}
         </span>
       </td>
       <td className="px-2 py-2 text-right">
-        <button onClick={() => delRow(r.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Borrar">×</button>
+        <button onClick={() => delRow(r.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Delete">×</button>
       </td>
     </tr>
   )
@@ -923,12 +923,12 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
       <div className="mx-auto max-w-6xl px-4 py-6">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Registro Completo</h1>
-            <p className="text-sm text-slate-500 capitalize">{monthName} — reales + proyecciones en orden de fecha</p>
+            <h1 className="text-2xl font-bold">Full Register</h1>
+            <p className="text-sm text-slate-500 capitalize">{monthName} — actuals + projections in date order</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-xl bg-[#10243f] px-4 py-2 text-sm font-bold text-white">← Volver</button>
-            <button onClick={onClose} className="rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-600" aria-label="Cerrar">✕</button>
+            <button onClick={onClose} className="rounded-xl bg-[#10243f] px-4 py-2 text-sm font-bold text-white">← Back</button>
+            <button onClick={onClose} className="rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-600" aria-label="Close">✕</button>
           </div>
         </div>
 
@@ -937,15 +937,15 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
             <table className="w-full min-w-[980px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
-                  <th className="w-[92px] px-2 py-2.5 font-semibold text-left align-middle">Fecha</th>
-                  <th className="w-[180px] px-2 py-2.5 font-semibold text-left align-middle">Detalle</th>
-                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Cuenta</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Débito real</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Crédito real</th>
-                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Balance real</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Gasto proy.</th>
-                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Ingreso proy.</th>
-                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Balance proy.</th>
+                  <th className="w-[92px] px-2 py-2.5 font-semibold text-left align-middle">Date</th>
+                  <th className="w-[180px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
+                  <th className="w-[110px] px-2 py-2.5 font-semibold text-left align-middle">Account</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Actual debit</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Actual credit</th>
+                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Real balance</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Proj. expense</th>
+                  <th className="w-[90px] px-2 py-2.5 text-right font-semibold align-middle">Proj. income</th>
+                  <th className="w-[100px] px-2 py-2.5 text-right font-semibold align-middle">Proj. balance</th>
                   <th className="w-[36px] px-2 py-2.5 align-middle"></th>
                   <th className="px-2 py-2.5 align-middle"></th>
                 </tr>
@@ -953,16 +953,16 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
               <tbody>
                 {past.map(row)}
                 <tr className="bg-[#10243f]">
-                  <td colSpan={11} className="px-4 py-1.5 text-center text-xs font-bold tracking-[0.2em] text-white">— HOY —</td>
+                  <td colSpan={11} className="px-4 py-1.5 text-center text-xs font-bold tracking-[0.2em] text-white">— TODAY —</td>
                 </tr>
                 {future.map(row)}
                 {past.length + future.length === 0 && (
-                  <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos este mes.</td></tr>
+                  <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">No transactions this month.</td></tr>
                 )}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
-                  <td colSpan={3} className="px-2 py-3 text-sm">Totales proyectados</td>
+                  <td colSpan={3} className="px-2 py-3 text-sm">Projected totals</td>
                   <td className="px-2 py-3"></td>
                   <td className="px-2 py-3"></td>
                   <td className="px-2 py-3"></td>
@@ -976,7 +976,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
             </table>
           </div>
           <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400">
-            Toca cualquier celda para editarla — todo se guarda solo. El balance proyectado parte del balance real actual.
+            Tap any cell to edit — everything saves automatically. Projected balance starts from the current real balance.
           </p>
         </div>
       </div>

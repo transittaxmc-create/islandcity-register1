@@ -92,6 +92,16 @@ export default function EstadoBancario() {
   const [loadedAt, setLoadedAt] = useState<number | null>(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [acctPop, setAcctPop] = useState(false)
+  // Register por cuenta: filtro + balances reales + transferencias
+  const [acctFilter, setAcctFilter] = useState('all')
+  const [acctMeta, setAcctMeta] = useState<{ name: string; current_balance: number | null }[]>([])
+  const [links, setLinks] = useState<any[]>([])
+  const [showTransfers, setShowTransfers] = useState(false)
+  const [transferCands, setTransferCands] = useState<any[]>([])
+  const [transferBusy, setTransferBusy] = useState(false)
+  const [transferMsg, setTransferMsg] = useState('')
+  const [analysis, setAnalysis] = useState<Record<string, string>>({})
+  const [analyzingKey, setAnalyzingKey] = useState<string | null>(null)
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([])
@@ -120,6 +130,9 @@ export default function EstadoBancario() {
     }
     setLoading(false)
     setLoadedAt(Date.now())
+    fetch(`/api/reconcile/transfers?links=1&month=${month}`).then((r) => r.json()).then((j) => {
+      if (!j.error) setLinks(j.links || [])
+    }).catch(() => {})
   }, [month])
 
   useEffect(() => {
@@ -146,22 +159,43 @@ export default function EstadoBancario() {
         const acc = (j.accounts || []).map((x: any) => x.name).filter(Boolean)
         const cat = (j.categories || []).map((x: any) => x.name).filter(Boolean)
         setLists({ accounts: acc.length ? acc : FALLBACK_ACCOUNTS, categories: cat.length ? cat : FALLBACK_CATEGORIES })
+        setAcctMeta((j.accounts || []).map((x: any) => ({ name: x.name, current_balance: x.current_balance ?? null })).filter((x: any) => x.name))
       }
     }).catch(() => {})
   }, [load])
 
+  // Movimientos vinculados como transferencias (no cuentan como ingreso/gasto: evita duplicar)
+  const linkedIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const l of links) { s.add(String(l.from_tx)); s.add(String(l.to_tx)) }
+    return s
+  }, [links])
+
+  // Filtro por cuenta (register por cuenta)
+  const ftx = useMemo(() => acctFilter === 'all' ? transactions : transactions.filter((t) => t.bank_account === acctFilter), [transactions, acctFilter])
+  const fproj = useMemo(() => acctFilter === 'all' ? projected : projected.filter((p: any) => (p.bank_account || 'Cuenta principal') === acctFilter), [projected, acctFilter])
+  const acctNames = useMemo(() => {
+    const s = new Set<string>()
+    for (const t of transactions) if (t.bank_account) s.add(t.bank_account)
+    return [...s].sort()
+  }, [transactions])
+
   const totals = useMemo(() => {
     let dReal = 0, cReal = 0, gProy = 0, iProy = 0
-    for (const t of transactions) { dReal += Number(t.debit) || 0; cReal += Number(t.credit) || 0 }
-    for (const p of projected) { gProy += Number(p.debit) || 0; iProy += Number(p.credit) || 0 }
+    for (const t of ftx) {
+      if (linkedIds.has(String(t.id))) continue
+      dReal += Number(t.debit) || 0; cReal += Number(t.credit) || 0
+    }
+    for (const p of fproj) { gProy += Number(p.debit) || 0; iProy += Number(p.credit) || 0 }
     return { dReal, cReal, gProy, iProy }
-  }, [transactions, projected])
+  }, [ftx, fproj, linkedIds])
 
+  // Balance REAL: lo que el banco reporta hoy por cada cuenta (viene de Plaid en cada sync).
   const realBalance = useMemo(() => {
-    let b = 0
-    for (const t of transactions) b += (Number(t.credit) || 0) - (Number(t.debit) || 0)
-    return b
-  }, [transactions])
+    const rows = acctMeta.filter((a) => acctFilter === 'all' || a.name === acctFilter)
+    if (!rows.some((a) => a.current_balance != null)) return null
+    return rows.reduce((s, a) => s + (Number(a.current_balance) || 0), 0)
+  }, [acctMeta, acctFilter])
 
   async function saveEdit(id: string, field: string, value: any) {
     setEditing(null)
@@ -423,7 +457,82 @@ export default function EstadoBancario() {
       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">Projected</span>
     )
 
-  const journalRow = (t: Tx, kind: 'real' | 'proy') => (
+  // Marca Personal/Business: Business -> Personal -> sin marcar
+  async function cyclePb(t: Tx) {
+    const cur = (t as any).pb_class as string | null
+    const next = cur === 'business' ? 'personal' : cur === 'personal' ? null : 'business'
+    await fetch('/api/reconcile/data', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: t.id, field: 'pb_class', value: next }),
+    })
+    load()
+  }
+
+  // ---- Transferencias entre cuentas propias ----
+  async function findTransfers() {
+    setTransferBusy(true)
+    setTransferMsg('')
+    try {
+      const j = await fetch(`/api/reconcile/transfers?month=${month}`).then((r) => r.json())
+      if (j.error) throw new Error(j.error)
+      setTransferCands(j.candidates || [])
+      setTransferMsg(j.candidates?.length
+        ? `${j.candidates.length} possible transfer(s) found — review and approve.`
+        : 'No transfer candidates found for this month.')
+    } catch (e: any) {
+      setTransferMsg('Could not search: ' + e.message)
+    }
+    setTransferBusy(false)
+  }
+
+  async function analyzeTransfer(c: any) {
+    const key = `${c.from.id}>${c.to.id}`
+    setAnalyzingKey(key)
+    try {
+      const j = await fetch('/api/reconcile/transfer-analysis', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_tx: c.from.id, to_tx: c.to.id }),
+      }).then((r) => r.json())
+      setAnalysis((a) => ({ ...a, [key]: j.analysis || j.error || 'No analysis.' }))
+    } catch {
+      setAnalysis((a) => ({ ...a, [key]: 'Could not analyze.' }))
+    }
+    setAnalyzingKey(null)
+  }
+
+  async function approveTransfer(c: any) {
+    await fetch('/api/reconcile/transfers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from_tx: c.from.id, to_tx: c.to.id }),
+    })
+    setTransferCands((cs) => cs.filter((x) => x.from.id !== c.from.id || x.to.id !== c.to.id))
+    load()
+  }
+
+  async function unlinkTransfer(id: string) {
+    if (!confirm('Unlink this transfer? It will count as income/expense again.')) return
+    await fetch(`/api/reconcile/transfers?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    load()
+  }
+
+  // Cadena de fondos: camina los vínculos para mostrar origen -> ... -> destino
+  function trailFor(link: any) {
+    const byTo = new Map(links.map((l: any) => [String(l.to_tx), l]))
+    const byFrom = new Map(links.map((l: any) => [String(l.from_tx), l]))
+    const chain = [link]
+    let cur: any = link
+    let guard = 0
+    while (byTo.has(String(cur.from_tx)) && guard++ < 20) { cur = byTo.get(String(cur.from_tx)); chain.unshift(cur) }
+    cur = link; guard = 0
+    while (byFrom.has(String(cur.to_tx)) && guard++ < 20) { cur = byFrom.get(String(cur.to_tx)); chain.push(cur) }
+    return chain
+  }
+
+  const journalRow = (t: Tx, kind: 'real' | 'proy') => {
+    const tb = kind === 'real' ? trueBal.get(t.id) : null
+    const pb = (t as any).pb_class as string | null
+    return (
     <tr key={t.id} className={`border-t border-slate-100 ${kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
       {selCell(t.id, 'bank_account', t.bank_account, lists.accounts)}
@@ -434,38 +543,39 @@ export default function EstadoBancario() {
       {txtCell(t.id, 'credit', t.credit, { type: 'number', right: true, display: Number(t.credit) ? money(Number(t.credit)) : '' })}
       {kind === 'real' ? (
         <td className="px-2 py-2.5 text-right align-middle whitespace-nowrap font-mono text-sm font-bold">
-          <span className={(runningBal.get(t.id) ?? 0) < 0 ? 'text-red-600' : 'text-slate-700'}>{money(runningBal.get(t.id) ?? 0)}</span>
+          {tb == null
+            ? <span className="text-slate-300">–</span>
+            : <span className={tb < 0 ? 'text-red-600' : 'text-slate-700'}>{money(tb)}</span>}
         </td>
       ) : (
         <td className="px-2 py-2.5 align-middle"></td>
       )}
       <td className="px-2 py-2.5 text-right align-middle whitespace-nowrap">
+        <button
+          title={pb === 'business' ? 'Business — tap to change' : pb === 'personal' ? 'Personal — tap to change' : 'Set Personal / Business'}
+          onClick={() => cyclePb(t)}
+          className={`mr-1 inline-grid size-4 place-items-center rounded-full text-[8px] font-bold ${pb === 'business' ? 'bg-blue-600 text-white' : pb === 'personal' ? 'bg-violet-500 text-white' : 'bg-slate-200 text-slate-400'}`}
+        >{pb === 'business' ? 'B' : pb === 'personal' ? 'P' : '·'}</button>
         <span title={t.reconciled ? 'Reconciled' : isFromBank(t.detail, t.source) ? 'From bank' : 'Manual/Scanned'} className={`mr-1 inline-grid size-4 place-items-center rounded-full ${t.reconciled ? 'bg-emerald-500' : isFromBank(t.detail, t.source) ? 'bg-blue-500' : 'bg-amber-400'}`}>
           {t.reconciled ? <span className="text-[8px] text-white">✓</span> : null}
         </span>
         <button onClick={() => delRow(t.id)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Delete">×</button>
       </td>
     </tr>
-  )
+    )
+  }
 
   // Balances por cuenta (solo las que tienen balance distinto de cero)
   const accountBalances = useMemo(() => {
-    const latest: Record<string, { balance: number; date: string }> = {}
-    for (const t of transactions) {
-      const acct = t.bank_account || 'Cuenta principal'
-      const bal = Number(t.daily_balance) || 0
-      if (!latest[acct] || t.date >= latest[acct].date) {
-        latest[acct] = { balance: bal, date: t.date }
-      }
-    }
-    return Object.entries(latest)
-      .filter(([, v]) => v.balance !== 0)
+    return acctMeta
+      .filter((a) => a.current_balance != null && Number(a.current_balance) !== 0)
+      .map((a) => [a.name, { balance: Number(a.current_balance) }] as [string, { balance: number }])
       .sort((a, b) => Math.abs(b[1].balance) - Math.abs(a[1].balance))
-  }, [transactions])
+  }, [acctMeta])
 
   const allRows = useMemo(() => {
-    const r = transactions.map((t) => ({ ...t, _kind: 'real' as const }))
-    const p = projected.map((t) => ({ ...t, _kind: 'proy' as const }))
+    const r = ftx.map((t) => ({ ...t, _kind: 'real' as const }))
+    const p = fproj.map((t) => ({ ...t, _kind: 'proy' as const }))
     const s = [...r, ...p].sort((a, b) => a.date.localeCompare(b.date))
     const ordered = sortNewest ? s.reverse() : s
     const q = search.trim().toLowerCase()
@@ -475,19 +585,34 @@ export default function EstadoBancario() {
       const inAmount = String(t.debit || '').includes(q) || String(t.credit || '').includes(q)
       return inText || inAmount
     })
-  }, [transactions, projected, sortNewest, search])
+  }, [ftx, fproj, sortNewest, search])
 
-  // Balance acumulativo por fila (solo reales, en orden cronológico)
-  const runningBal = useMemo(() => {
-    const m = new Map<string, number>()
-    const chrono = [...transactions].sort((a, b) => a.date.localeCompare(b.date))
-    let b = 0
-    for (const t of chrono) {
-      b += (Number(t.credit) || 0) - (Number(t.debit) || 0)
-      m.set(t.id, b)
+  // Balance real por fila: se reconstruye caminando hacia atrás desde el balance
+  // actual que reporta el banco para cada cuenta (como un estado bancario de verdad).
+  const trueBal = useMemo(() => {
+    const m = new Map<string, number | null>()
+    const curByAcct = new Map<string, number>()
+    for (const a of acctMeta) if (a.current_balance != null) curByAcct.set(a.name, Number(a.current_balance))
+    const byAcct = new Map<string, Tx[]>()
+    for (const t of transactions) {
+      if (t.entry_type !== 'real') continue
+      const k = t.bank_account || 'Cuenta principal'
+      if (!byAcct.has(k)) byAcct.set(k, [])
+      byAcct.get(k)!.push(t)
+    }
+    for (const [acct, arr] of byAcct) {
+      arr.sort((a, b) => a.date.localeCompare(b.date) || String(a.created_at || '').localeCompare(String(b.created_at || '')))
+      const cur = curByAcct.get(acct)
+      if (cur == null) { arr.forEach((t) => m.set(t.id, null)); continue }
+      let b = cur
+      for (let i = arr.length - 1; i >= 0; i--) {
+        const t = arr[i]
+        m.set(t.id, b)
+        b -= (Number(t.credit) || 0) - (Number(t.debit) || 0)
+      }
     }
     return m
-  }, [transactions])
+  }, [transactions, acctMeta])
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-[#17263d]" translate="no">
@@ -508,7 +633,7 @@ export default function EstadoBancario() {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#10b981] opacity-75" />
                 <span className="relative inline-flex size-2 rounded-full bg-[#10b981]" />
               </span>
-              <p className="text-[13px] text-[#64748b]">Summary of {accountBalances.length} {accountBalances.length === 1 ? 'account' : 'accounts'} • Today</p>
+              <p className="text-[13px] text-[#64748b]">{acctFilter === 'all' ? `Summary of ${accountBalances.length} ${accountBalances.length === 1 ? 'account' : 'accounts'}` : acctFilter} • Today</p>
               <span className="rounded-full border border-[#e2e8f0] bg-white px-2.5 py-0.5 text-[11px] font-semibold text-[#64748b]">LIVE • Updated {agoText()}</span>
             </div>
           </div>
@@ -535,7 +660,7 @@ export default function EstadoBancario() {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></svg>
             </span>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">Real balance</p>
-            <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#0f172a]">{money(realBalance)}</p>
+            <p className="mt-[2px] whitespace-nowrap font-mono text-[20px] font-bold leading-[1.1] text-[#0f172a]">{realBalance == null ? '—' : money(realBalance)}</p>
           </div>
           <div className="relative h-[88px] max-h-[88px] min-h-[88px] overflow-hidden rounded-2xl border border-[#bbf7d0] bg-gradient-to-br from-[#f0fdf4] to-[#ecfdf5] p-[10px_12px]">
             <span className="absolute right-3 top-[10px] grid size-[26px] place-items-center rounded-full bg-[#dcfce7] text-[#16a34a]">
@@ -606,6 +731,13 @@ export default function EstadoBancario() {
                 View full register
               </button>
               <button
+                onClick={() => setShowTransfers((v) => !v)}
+                title="Match bank-to-bank transfers"
+                className={`rounded-xl px-3 py-1.5 text-sm font-bold ${showTransfers ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                🔗 Transfers{links.length ? ` (${links.length})` : ''}
+              </button>
+              <button
                 onClick={startAdd}
                 className="rounded-xl bg-[#40b9a1] px-3 py-1.5 text-sm font-bold text-[#10243f] hover:bg-[#35a48f]"
               >
@@ -613,6 +745,88 @@ export default function EstadoBancario() {
               </button>
             </div>
           </div>
+          {/* Register por cuenta */}
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 px-4 py-2">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Account</span>
+            {['all', ...acctNames].map((n) => (
+              <button
+                key={n}
+                onClick={() => setAcctFilter(n)}
+                className={`max-w-[160px] truncate rounded-full px-2.5 py-1 text-[11px] font-bold ${acctFilter === n ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                {n === 'all' ? 'All accounts' : n}
+              </button>
+            ))}
+          </div>
+          {/* Transferencias entre cuentas propias */}
+          {showTransfers && (
+            <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-[#10243f]">Bank-to-bank transfers</h3>
+                  <p className="text-[11px] text-slate-500">Matched transfers don't count as income or expenses — no double counting.</p>
+                </div>
+                <button
+                  onClick={findTransfers}
+                  disabled={transferBusy}
+                  className="rounded-xl bg-[#10243f] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1c3557] disabled:opacity-50"
+                >
+                  {transferBusy ? 'Searching…' : '🔍 Find transfers'}
+                </button>
+              </div>
+              {transferMsg && <p className="mb-2 text-xs text-slate-500">{transferMsg}</p>}
+              {links.length > 0 && (
+                <div className="mb-2">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Matched ({links.length})</p>
+                  {links.map((l) => {
+                    const chain = trailFor(l)
+                    return (
+                      <div key={l.id} className="mb-1.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0 text-xs">
+                            <span className="font-bold text-slate-700">{l.from ? `${fmtDate(l.from.date)} · ${l.from.bank_account}` : '?'} <span className="font-mono text-red-600">−{money(l.from?.debit)}</span></span>
+                            <span className="mx-1.5 text-slate-400">→</span>
+                            <span className="font-bold text-slate-700">{l.to ? `${fmtDate(l.to.date)} · ${l.to.bank_account}` : '?'} <span className="font-mono text-emerald-600">+{money(l.to?.credit)}</span></span>
+                          </div>
+                          <button onClick={() => unlinkTransfer(l.id)} title="Unlink" className="rounded-lg bg-white px-2 py-0.5 text-[11px] font-bold text-slate-400 hover:text-red-500">Unlink</button>
+                        </div>
+                        {chain.length > 1 && (
+                          <p className="mt-1 text-[11px] text-slate-500">Trail: {chain.map((c: any) => c.from?.bank_account).concat([chain[chain.length - 1].to?.bank_account]).filter(Boolean).join(' → ')}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {transferCands.length > 0 && (
+                <div>
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Candidates — review & approve</p>
+                  {transferCands.map((c) => {
+                    const key = `${c.from.id}>${c.to.id}`
+                    return (
+                      <div key={key} className="mb-1.5 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0 text-xs">
+                            <span className="font-semibold text-slate-700">{fmtDate(c.from.date)} · {c.from.bank_account} <span className="font-mono text-red-600">−{money(c.from.debit)}</span> <span className="text-slate-400">“{c.from.detail}”</span></span>
+                            <span className="mx-1.5 text-slate-400">→</span>
+                            <span className="font-semibold text-slate-700">{fmtDate(c.to.date)} · {c.to.bank_account} <span className="font-mono text-emerald-600">+{money(c.to.credit)}</span> <span className="text-slate-400">“{c.to.detail}”</span></span>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button onClick={() => analyzeTransfer(c)} disabled={analyzingKey === key} className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-[#6366f1] hover:bg-indigo-50 disabled:opacity-50">
+                              {analyzingKey === key ? 'Analyzing…' : '🤖 Analyze'}
+                            </button>
+                            <button onClick={() => approveTransfer(c)} className="rounded-lg bg-[#40b9a1] px-2 py-1 text-[11px] font-bold text-[#10243f]">Approve</button>
+                            <button onClick={() => setTransferCands((cs) => cs.filter((x) => `${x.from.id}>${x.to.id}` !== key))} className="rounded-lg bg-white px-2 py-1 text-[11px] font-bold text-slate-400 hover:text-red-500">Dismiss</button>
+                          </div>
+                        </div>
+                        {analysis[key] && <p className="mt-1.5 whitespace-pre-line text-[11px] leading-snug text-slate-600">{analysis[key]}</p>}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] border-collapse">
               <thead>
@@ -625,7 +839,7 @@ export default function EstadoBancario() {
                   <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Debit</th>
                   <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Credit</th>
                   <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>
-                  <th className="w-[32px] px-2 py-2.5 align-middle"></th>
+                  <th className="w-[56px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>
               <tbody>
@@ -859,16 +1073,16 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
 
   type FR = {
     id: string; date: string; detail: string; account: string; kind: 'real' | 'proy'
-    dReal: number; cReal: number; gProy: number; iProy: number; realBal?: number; projBal?: number
+    dReal: number; cReal: number; gProy: number; iProy: number; realBal?: number | null; projBal?: number
   }
 
   const { past, future, totGProy, totIProy, finalProj } = useMemo(() => {
     const rows: FR[] = [
-      ...transactions.map((t) => ({
+      ...ftx.map((t) => ({
         id: t.id, date: t.date, detail: t.detail, account: t.bank_account, kind: 'real' as const,
         dReal: Number(t.debit) || 0, cReal: Number(t.credit) || 0, gProy: 0, iProy: 0,
       })),
-      ...projected.map((p) => ({
+      ...fproj.map((p) => ({
         id: p.id, date: p.date, detail: p.detail, account: p.bank_account, kind: 'proy' as const,
         dReal: 0, cReal: 0, gProy: Number(p.debit) || 0, iProy: Number(p.credit) || 0,
       })),
@@ -877,9 +1091,8 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
       return sortNewest ? -d : d
     })
 
-    let rb = 0
-    for (const r of rows) if (r.kind === 'real') { rb += r.cReal - r.dReal; r.realBal = rb }
-    let pb = rb
+    for (const r of rows) if (r.kind === 'real') { r.realBal = trueBal.get(r.id) ?? null }
+    let pb = realBalance ?? 0
     let tg = 0, ti = 0
     for (const r of rows) {
       if (r.kind === 'proy') { pb += r.iProy - r.gProy; r.projBal = pb; tg += r.gProy; ti += r.iProy }
@@ -889,7 +1102,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
       future: rows.filter((r) => r.date >= today),
       totGProy: tg, totIProy: ti, finalProj: pb,
     }
-  }, [transactions, projected, today])
+  }, [ftx, fproj, today, trueBal, realBalance])
 
   const row = (r: FR) => (
     <tr key={r.id + r.kind} className={`border-t border-slate-100 ${r.kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
@@ -900,7 +1113,7 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
         <>
           {txtCell(r.id, 'debit', r.dReal, { type: 'number', right: true, display: r.dReal ? money(r.dReal) : '' })}
           {txtCell(r.id, 'credit', r.cReal, { type: 'number', right: true, display: r.cReal ? money(r.cReal) : '' })}
-          <td className={`px-2 py-2 text-right font-mono text-sm font-bold ${Number(r.realBal) < 0 ? 'text-red-600' : ''}`}>{money(Number(r.realBal))}</td>
+          <td className={`px-2 py-2 text-right font-mono text-sm font-bold ${(r.realBal ?? 0) < 0 ? 'text-red-600' : ''}`}>{r.realBal == null ? '–' : money(r.realBal)}</td>
           <td className="px-2 py-2"></td>
           <td className="px-2 py-2"></td>
           <td className="px-2 py-2"></td>

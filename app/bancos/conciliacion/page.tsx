@@ -1045,6 +1045,10 @@ export default function EstadoBancario() {
             txtCell={txtCell}
             delRow={delRow}
             acctShort={acctShort}
+            ftx={ftx}
+            fproj={fproj}
+            trueBal={trueBal}
+            realBalance={realBalance}
           />
         )}
           </div>
@@ -1134,7 +1138,7 @@ export default function EstadoBancario() {
 }
 
 /* ---------- Registro Completo (overlay) ---------- */
-function FullRegister({ month, transactions, projected, onClose, txtCell, delRow, sortNewest, acctShort }: {
+function FullRegister({ month, transactions, projected, onClose, txtCell, delRow, sortNewest, acctShort, ftx, fproj, trueBal, realBalance }: {
   month: string
   transactions: Tx[]
   projected: Tx[]
@@ -1143,6 +1147,10 @@ function FullRegister({ month, transactions, projected, onClose, txtCell, delRow
   delRow: (id: string) => void
   sortNewest: boolean
   acctShort: (name: string) => string
+  ftx: Tx[]
+  fproj: Tx[]
+  trueBal: Map<string, number | null>
+  realBalance: number | null
 }) {
   const today = todayISO()
   const monthName = (() => {

@@ -35,6 +35,6 @@
     "typescript": "5.7.3"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["core-js"]
+    "neverBuiltDependencies": ["core-js"]
   }
 }

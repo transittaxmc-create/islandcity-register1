@@ -6,10 +6,28 @@ type Acct = { name: string; current_balance: number | null; institution: string 
 type MonthData = { ym: string; inc: number; exp: number; byCat: Map<string, number> }
 type SummaryMonth = { ym: string; inc: number; exp: number; byCat: [string, number][] }
 type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; debit: number; credit: number }
+type LedgerRowT = {
+  id: string; date: string; entity: string; fullDetail: string; category: string; account: string
+  actual: number; projected: number; variance: number; status: string
+  classification: string; ruleId: string | null; ruleFrequency: string | null; txId: string | null; isRecurringRule: boolean
+}
 
 const SUMMARY_CACHE = 'proj-summary-v1'
+const LEDGER_CACHE = 'ledger-2026-v1'
 const PROJ_ROW_H = 52
 const PROJ_VIEW_H = 220
+
+const num2 = (v: number) =>
+  new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0)
+
+const STATUS_PILL: Record<string, string> = {
+  MATCHED: 'bg-emerald-100 text-emerald-700',
+  SUGGESTED: 'bg-amber-100 text-amber-700',
+  UNPLANNED: 'bg-rose-100 text-rose-700',
+  TRANSFER: 'bg-slate-200 text-slate-500',
+  BONUS: 'bg-yellow-100 text-yellow-800',
+  PLANNED_UNSPENT: 'bg-sky-100 text-sky-700',
+}
 
 const money = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
@@ -125,11 +143,58 @@ export default function ProjectionsPanel() {
   const [months, setMonths] = useState<SummaryMonth[]>([])
   const [projItems, setProjItems] = useState<ProjItem[]>([])
   const [projTotals, setProjTotals] = useState({ income: 0, expenses: 0 })
+  const [ledgerRows, setLedgerRows] = useState<LedgerRowT[]>([])
+  const [ledgerBuckets, setLedgerBuckets] = useState<any[]>([])
+  const [ledgerTotals, setLedgerTotals] = useState({ actualNet: 0, projectedNet: 0, gap: 0 })
+  const [ledgerAlert, setLedgerAlert] = useState<any>(null)
+  const [ledgerLoading, setLedgerLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [scrollTop, setScrollTop] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef(0)
+
+  const applyLedger = (lj: any) => {
+    setLedgerRows(((lj.rows || []) as LedgerRowT[]).slice().sort((a, b) => String(a.date).localeCompare(String(b.date))))
+    setLedgerBuckets(lj.buckets || [])
+    setLedgerTotals(lj.totals || { actualNet: 0, projectedNet: 0, gap: 0 })
+    setLedgerAlert(lj.alert || null)
+  }
+
+  useEffect(() => {
+    let alive = true
+    try {
+      const raw = sessionStorage.getItem(LEDGER_CACHE)
+      if (raw) {
+        applyLedger(JSON.parse(raw))
+        setLedgerLoading(false)
+      }
+    } catch {}
+    ;(async () => {
+      try {
+        let sg = 0
+        let sb2 = 0
+        try {
+          sg = Number(localStorage.getItem('saving-goal') || 0)
+          sb2 = Number(localStorage.getItem('safety-buffer') || 0)
+        } catch {}
+        const lj = await fetch(`/api/reconcile/ledger?month=2026-10&savingGoal=${sg}&safetyBuffer=${sb2}`).then((r) => r.json())
+        if (lj?.error) throw new Error(lj.error)
+        if (!alive) return
+        applyLedger(lj)
+        try {
+          sessionStorage.setItem(LEDGER_CACHE, JSON.stringify(lj))
+        } catch {}
+      } catch {
+        // keep cache or empty state; journal fetch below still paints KPIs/charts
+      } finally {
+        if (alive) setLedgerLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const applySummary = (sj: any) => {
     const accs: Acct[] = ((sj.accounts || []) as any[])
@@ -359,99 +424,101 @@ export default function ProjectionsPanel() {
         </div>
       </section>
 
-      {/* Full Register — horizontal full-width block, bounded scroll box */}
+      {/* Full Register — Comparative Ledger: Reality vs Plan */}
       <section className="mt-3">
         <div className={`${card} flex flex-col`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3">
               <h3 className={h3}>Full Register 2026</h3>
-              <p className="text-[11px] text-slate-400">Desplázate dentro del recuadro para ver todas las transacciones.</p>
+              <p className="text-[11px] text-slate-400">Reality vs plan — did I spend/earn what I planned?</p>
             </div>
             <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
-              {accounts.length} cuentas · {projCount} proyecciones
+              {ledgerRows.length} rows
             </span>
           </div>
-          <div className="scroll-slim mt-2 max-h-[240px] overflow-y-auto rounded-lg border border-slate-100 px-3">
-            <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">Cuentas · saldo final</p>
-            <table className="w-full text-sm">
+          {ledgerAlert?.message && (
+            <div className={`mt-2 rounded-xl border px-4 py-2 text-xs font-bold ${ledgerAlert.level === 'red' ? 'border-red-200 bg-red-50 text-red-700' : ledgerAlert.level === 'orange' ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-yellow-200 bg-yellow-50 text-yellow-700'}`}>
+              {ledgerAlert.level === 'red' ? '🔴 ' : ledgerAlert.level === 'orange' ? '🟠 ' : '🟡 '}{ledgerAlert.message}
+              <span className="ml-2 font-mono font-semibold">Net {num2(ledgerAlert.net)}</span>
+            </div>
+          )}
+          {ledgerBuckets.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {ledgerBuckets.map((b: any) => (
+                <span key={b.category} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${b.over ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {b.category}: {num2(b.actual)} / {num2(b.budget)}{b.over ? ' — over' : ` — ${num2(b.remaining)} left`}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="scroll-slim mt-2 max-h-[300px] overflow-auto rounded-lg border border-slate-100">
+            <table className="w-full min-w-[900px] border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 py-2 pr-2 font-medium">Cuenta</th>
-                  <th className="border-b border-slate-200 py-2 font-medium text-right">Saldo</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Date</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Entity</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Category</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Account</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Actual (USD)</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Projected (USD)</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Variance</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-center font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((a) => {
-                  const b = a.current_balance
-                  return (
-                    <tr key={a.name} className="border-t border-slate-100 even:bg-slate-50/60">
-                      <td className="py-1.5 pr-2 font-medium text-slate-700">{shortBank(a)}</td>
-                      <td className={`py-1.5 text-right font-semibold tabular-nums ${(b ?? 0) < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                        {b == null ? '–' : money(b)}
-                      </td>
-                    </tr>
-                  )
-                })}
-                <tr className="border-t-2 border-slate-200">
-                  <td className="py-1.5 pr-2 font-bold text-slate-800">Total banco</td>
-                  <td className={`py-1.5 text-right font-bold ${bankTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(bankTotal)}</td>
-                </tr>
+                {ledgerLoading && ledgerRows.length === 0 ? (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">Loading ledger…</td></tr>
+                ) : ledgerRows.length === 0 ? (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">No ledger rows — add transactions or projection rules.</td></tr>
+                ) : (
+                  ledgerRows.map((r) => (
+                    <LedgerRowView key={r.id} r={r} />
+                  ))
+                )}
               </tbody>
             </table>
-
-            <p className="mb-1 mt-4 text-[11px] font-bold uppercase tracking-widest text-slate-400">Proyecciones</p>
-            {projItems.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-400">Sin proyecciones registradas.</p>
-            ) : (
-              <div>
-                <div className="grid grid-cols-[72px_1fr_84px_96px] gap-x-2 border-b border-slate-200 py-2 pr-2 text-left text-[11px] text-slate-400">
-                  <span className="font-medium">Fecha</span>
-                  <span className="font-medium">Detalle</span>
-                  <span className="font-medium">Tipo</span>
-                  <span className="text-right font-medium">Monto</span>
-                </div>
-                <div
-                  ref={listRef}
-                  onScroll={onProjScroll}
-                  className="scroll-slim overflow-y-auto"
-                  style={{ height: PROJ_VIEW_H }}
-                >
-                  <div style={{ height: projItems.length * PROJ_ROW_H, position: 'relative' }}>
-                    {projItems.slice(projWin.start, projWin.end).map((p, i) => {
-                      const idx = projWin.start + i
-                      const isInc = Number(p.credit) > 0
-                      return (
-                        <div
-                          key={p.id}
-                          className={`grid grid-cols-[72px_1fr_84px_96px] items-center gap-x-2 border-t border-slate-100 pr-2 text-sm ${idx % 2 === 1 ? 'bg-slate-50/60' : ''}`}
-                          style={{ position: 'absolute', top: idx * PROJ_ROW_H, left: 0, right: 0, height: PROJ_ROW_H }}
-                        >
-                          <span className="whitespace-nowrap tabular-nums text-slate-500">{fmtD(p.date)}</span>
-                          <span className="min-w-0">
-                            <p className="truncate font-medium text-slate-700">{p.detail}</p>
-                            <p className="text-[11px] text-slate-400">{p.frequency}</p>
-                          </span>
-                          <span className={`whitespace-nowrap font-semibold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
-                            {isInc ? 'Ingreso' : 'Gasto'}
-                          </span>
-                          <span className={`whitespace-nowrap text-right font-semibold tabular-nums ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
-                            {isInc ? '+' : '−'}{money(Number(isInc ? p.credit : p.debit))}
-                          </span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
-          <div className="mt-2 flex items-center justify-between rounded-xl border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2">
-            <p className="text-sm font-extrabold text-slate-800">BALANCE TOTAL</p>
-            <p className={`text-lg font-extrabold tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(grandTotal)}</p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
+            <span className="font-extrabold text-slate-800">Actual net <span className="font-mono tabular-nums">{num2(ledgerTotals.actualNet)}</span></span>
+            <span className="font-semibold text-slate-500">Projected net <span className="font-mono tabular-nums">{num2(ledgerTotals.projectedNet)}</span></span>
+            <span className={`font-extrabold font-mono tabular-nums ${ledgerTotals.gap > 0.005 ? 'text-emerald-600' : ledgerTotals.gap < -0.005 ? 'text-rose-600' : 'text-slate-500'}`}>
+              Gap {ledgerTotals.gap > 0 ? '+' : ''}{num2(ledgerTotals.gap)}
+            </span>
           </div>
         </div>
       </section>
-
     </div>
+  )
+}
+
+function LedgerRowView({ r }: { r: LedgerRowT }) {
+  const isTransfer = r.status === 'TRANSFER'
+  const isBonus = r.status === 'BONUS'
+  const vGood = r.variance > 0.005
+  const vBad = r.variance < -0.005
+  return (
+    <tr
+      title={r.fullDetail}
+      className={`border-t border-slate-100 ${isTransfer ? 'bg-slate-50 italic' : isBonus ? 'bg-yellow-50/60' : 'even:bg-slate-50/60'}`}
+    >
+      <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
+      <td className="max-w-[190px] truncate px-2 py-1.5 font-medium text-slate-700">{r.entity}</td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-500">{r.category}</td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-500">{r.account}</td>
+      <td className={`whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums ${isTransfer ? 'text-slate-400' : 'text-slate-800'}`}>
+        {r.actual === 0 && r.txId == null ? '–' : num2(r.actual)}
+      </td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-slate-500">
+        {r.projected === 0 && !r.isRecurringRule ? '0.00' : num2(r.projected)}
+      </td>
+      <td className={`whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums ${vGood ? 'text-emerald-600' : vBad ? 'text-rose-600' : 'text-slate-400'}`}>
+        {Math.abs(r.variance) < 0.005 ? '0.00' : `${r.variance > 0 ? '+' : '−'}${num2(Math.abs(r.variance))}`}
+      </td>
+      <td className="whitespace-nowrap px-2 py-1.5 text-center">
+        <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_PILL[r.status] || 'bg-slate-100 text-slate-500'}`}>
+          {r.status === 'PLANNED_UNSPENT' ? 'PLANNED' : r.status}
+        </span>
+      </td>
+    </tr>
   )
 }

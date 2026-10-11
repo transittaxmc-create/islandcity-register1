@@ -96,19 +96,23 @@ export default function EstadoBancario() {
   const [acctMeta, setAcctMeta] = useState<{ name: string; current_balance: number | null; institution: string | null; display_order: number }[]>([])
   const [links, setLinks] = useState<any[]>([])
   const [showTransfers, setShowTransfers] = useState(false)
+  const [transferCands, setTransferCands] = useState<any[]>([])
   const [transferBusy, setTransferBusy] = useState(false)
   const [transferMsg, setTransferMsg] = useState('')
   const [analysis, setAnalysis] = useState<Record<string, string>>({})
   const [analyzingKey, setAnalyzingKey] = useState<string | null>(null)
-  // Comparative Ledger state (final blueprint): reality vs plan per row.
-  const [ledger, setLedger] = useState<any>(null)
-  const [savingGoal, setSavingGoal] = useState('')
-  const [safetyBuffer, setSafetyBuffer] = useState('')
+  // Remitentes por verificar (Miguel: la AI aprende; él confirma con un toque)
+  const [showSenders, setShowSenders] = useState(false)
+  const [pendingSenders, setPendingSenders] = useState<any[]>([])
+  const [sendersBusy, setSendersBusy] = useState(false)
+  const [confirmingSender, setConfirmingSender] = useState<string | null>(null)
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
+  const [listening, setListening] = useState(false)
+  const recogRef = useRef<any>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const newRowRef = useRef<HTMLTableRowElement>(null)
 
@@ -135,18 +139,6 @@ export default function EstadoBancario() {
     fetch(`/api/reconcile/transfers?links=1&month=${month}`).then((r) => r.json()).then((j) => {
       if (!j.error) setLinks(j.links || [])
     }).catch(() => {})
-    // Comparative Ledger: reality vs plan (read-only; journal POST/PATCH/DELETE untouched).
-    try {
-      const sg = Number(localStorage.getItem('saving-goal') || 0)
-      const sb2 = Number(localStorage.getItem('safety-buffer') || 0)
-      if (String(sg)) setSavingGoal(String(sg))
-      if (String(sb2)) setSafetyBuffer(String(sb2))
-      const lj = await fetch(`/api/reconcile/ledger?month=${month}&savingGoal=${sg}&safetyBuffer=${sb2}`).then((r) => r.json())
-      if (!lj.error) setLedger(lj)
-      else setLedger(null)
-    } catch {
-      setLedger(null)
-    }
   }, [month])
 
   useEffect(() => {
@@ -544,6 +536,33 @@ export default function EstadoBancario() {
     load()
   }
 
+  // ---- Remitentes por verificar (un toque: transferencia o pago; la AI aprende) ----
+  async function loadSenders() {
+    setSendersBusy(true)
+    try {
+      const j = await fetch(`/api/reconcile/senders?month=${month}`).then((r) => r.json())
+      if (j.error) throw new Error(j.error)
+      setPendingSenders(j.pending || [])
+    } catch {
+      setPendingSenders([])
+    }
+    setSendersBusy(false)
+  }
+
+  async function confirmSender(sender: string, kind: 'transfer' | 'payment') {
+    setConfirmingSender(sender)
+    try {
+      await fetch('/api/reconcile/senders', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sender, kind }),
+      })
+      setPendingSenders((ps) => ps.filter((p) => p.sender !== sender))
+      load()
+    } finally {
+      setConfirmingSender(null)
+    }
+  }
+
   // ---- Transferencias entre cuentas propias ----
   async function findTransfers() {
     setTransferBusy(true)
@@ -602,69 +621,6 @@ export default function EstadoBancario() {
     cur = link; guard = 0
     while (byFrom.has(String(cur.to_tx)) && guard++ < 20) { cur = byFrom.get(String(cur.to_tx)); chain.push(cur) }
     return chain
-  }
-
-  const num = (v: number) =>
-    new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0)
-
-  const STATUS_PILL: Record<string, string> = {
-    MATCHED: 'bg-emerald-100 text-emerald-700',
-    SUGGESTED: 'bg-amber-100 text-amber-700',
-    UNPLANNED: 'bg-rose-100 text-rose-700',
-    TRANSFER: 'bg-slate-200 text-slate-500',
-    BONUS: 'bg-yellow-100 text-yellow-800',
-    PLANNED_UNSPENT: 'bg-sky-100 text-sky-700',
-  }
-
-  const saveGoals = () => {
-    try {
-      localStorage.setItem('saving-goal', String(Number(savingGoal) || 0))
-      localStorage.setItem('safety-buffer', String(Number(safetyBuffer) || 0))
-    } catch {}
-    load()
-  }
-
-  const ledgerRow = (r: any) => {
-    const isTransfer = r.status === 'TRANSFER'
-    const isBonus = r.status === 'BONUS'
-    // Signed convention (engine): variance = actual − projected →
-    // positive = favorable (income over plan / expense under plan) = green.
-    // Unplanned rows have projected = 0 → overspend shows red, bonus income green.
-    const vGood = r.variance > 0.005
-    const vBad = r.variance < -0.005
-    return (
-      <tr
-        key={r.id}
-        className={`border-t border-slate-100 ${isTransfer ? 'bg-slate-50 italic text-slate-400' : isBonus ? 'bg-yellow-50/60' : 'bg-white'}`}
-        title={r.fullDetail}
-      >
-        <td className="whitespace-nowrap px-2 py-2 align-middle text-sm text-slate-600">{fmtDate(r.date)}</td>
-        <td className="max-w-[180px] truncate px-2 py-2 align-middle text-sm font-medium text-slate-700">{r.entity}</td>
-        <td className="whitespace-nowrap px-2 py-2 align-middle text-xs text-slate-500">{r.category}</td>
-        <td className="whitespace-nowrap px-2 py-2 align-middle text-xs text-slate-500">{r.account}</td>
-        <td className={`whitespace-nowrap px-2 py-2 text-right align-middle font-mono text-sm font-semibold ${isTransfer ? 'text-slate-400' : r.actual < 0 ? 'text-slate-800' : 'text-slate-800'}`}>
-          {r.actual === 0 && r.txId == null ? '–' : num(r.actual)}
-        </td>
-        <td className="whitespace-nowrap px-2 py-2 text-right align-middle font-mono text-sm text-slate-500">
-          {r.projected === 0 && !r.isRecurringRule ? '0.00' : num(r.projected)}
-        </td>
-        <td className={`whitespace-nowrap px-2 py-2 text-right align-middle font-mono text-sm font-bold ${vGood ? 'text-emerald-600' : vBad ? 'text-rose-600' : 'text-slate-400'}`}>
-          {Math.abs(r.variance) < 0.005 ? '0.00' : `${r.variance > 0 ? '+' : '−'}${num(Math.abs(r.variance))}`}
-        </td>
-        <td className="whitespace-nowrap px-2 py-2 text-center align-middle">
-          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_PILL[r.status] || 'bg-slate-100 text-slate-500'}`}>
-            {r.status === 'PLANNED_UNSPENT' ? 'PLANNED' : r.status}
-          </span>
-        </td>
-        <td className="whitespace-nowrap px-2 py-2 text-center align-middle">
-          {r.txId ? (
-            <button onClick={() => delRow(r.txId)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Delete">×</button>
-          ) : r.ruleId ? (
-            <span className="text-[10px] font-semibold text-sky-500" title="Recurring rule">⟳</span>
-          ) : null}
-        </td>
-      </tr>
-    )
   }
 
   const journalRow = (t: Tx, kind: 'real' | 'proy') => {
@@ -857,9 +813,9 @@ export default function EstadoBancario() {
 
         {/* Libro Diario */}
         <div className="mb-5 overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
             <h2 className="text-[17px] font-bold text-[#10243f]">Journal</h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -875,6 +831,13 @@ export default function EstadoBancario() {
                 className={`rounded-xl px-3 py-1.5 text-sm font-bold ${showTransfers ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
                 🔗 Transfers{links.length ? ` (${links.length})` : ''}
+              </button>
+              <button
+                onClick={() => { setShowSenders((v) => !v); if (!showSenders) loadSenders() }}
+                title="Zelles pendientes de verificación"
+                className={`rounded-xl px-3 py-1.5 text-sm font-bold ${showSenders ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                ✓ Zelles
               </button>
               <button
                 onClick={startAdd}
@@ -967,77 +930,39 @@ export default function EstadoBancario() {
               )}
             </div>
           )}
-          {/* ===== Comparative Ledger: Reality vs Plan (final blueprint) ===== */}
-          <div className="mt-5 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
-              <div>
-                <h2 className="text-[17px] font-bold text-[#10243f]">Comparative Ledger</h2>
-                <p className="text-[11px] text-slate-500">Reality vs plan — did I spend/earn what I planned?</p>
+          {/* Remitentes por verificar: un toque por remitente, la AI aprende */}
+          {showSenders && (
+            <div className="border-b border-slate-100 bg-amber-50/50 px-4 py-3">
+              <div className="mb-2">
+                <h3 className="text-sm font-bold text-[#10243f]">Zelles por verificar</h3>
+                <p className="text-[11px] text-slate-500">Confirma si el remitente es cuenta propia (transferencia) o un pago. Tu respuesta se guarda y la próxima vez se clasifica solo.</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                  Saving goal $
-                  <input value={savingGoal} onChange={(e) => setSavingGoal(e.target.value)} inputMode="decimal" placeholder="0" className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs font-mono" />
-                </label>
-                <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                  Buffer $
-                  <input value={safetyBuffer} onChange={(e) => setSafetyBuffer(e.target.value)} inputMode="decimal" placeholder="0" className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs font-mono" />
-                </label>
-                <button onClick={saveGoals} className="rounded-lg bg-[#10243f] px-2.5 py-1 text-[11px] font-bold text-white">Apply</button>
-              </div>
+              {sendersBusy && <p className="text-xs text-slate-500">Loading…</p>}
+              {!sendersBusy && pendingSenders.length === 0 && (
+                <p className="text-xs text-slate-500">No hay remitentes pendientes este mes. ✓</p>
+              )}
+              {pendingSenders.map((p) => (
+                <div key={p.sender} className="mb-1.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-white px-3 py-2">
+                  <div className="min-w-0 text-xs">
+                    <span className="font-bold text-slate-700">{p.sender}</span>
+                    <span className="ml-2 text-slate-500">{p.n} movimiento{p.n === 1 ? '' : 's'} · {p.total < 0 ? '−' : '+'}{money(Math.abs(p.total))}</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => confirmSender(p.sender, 'transfer')}
+                      disabled={confirmingSender === p.sender}
+                      className="rounded-lg bg-[#10243f] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1c3557] disabled:opacity-50"
+                    >{confirmingSender === p.sender ? '…' : '🔁 Transferencia'}</button>
+                    <button
+                      onClick={() => confirmSender(p.sender, 'payment')}
+                      disabled={confirmingSender === p.sender}
+                      className="rounded-lg bg-[#40b9a1] px-2.5 py-1 text-[11px] font-bold text-[#10243f] hover:bg-[#35a48f] disabled:opacity-50"
+                    >{confirmingSender === p.sender ? '…' : '💵 Es pago'}</button>
+                  </div>
+                </div>
+              ))}
             </div>
-            {ledger?.alert?.message && (
-              <div className={`border-b px-4 py-2 text-xs font-bold ${ledger.alert.level === 'red' ? 'border-red-200 bg-red-50 text-red-700' : ledger.alert.level === 'orange' ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-yellow-200 bg-yellow-50 text-yellow-700'}`}>
-                {ledger.alert.level === 'red' ? '🔴 ' : ledger.alert.level === 'orange' ? '🟠 ' : '🟡 '}{ledger.alert.message}
-                <span className="ml-2 font-mono font-semibold">Net {num(ledger.alert.net)}</span>
-              </div>
-            )}
-            {(ledger?.buckets || []).length > 0 && (
-              <div className="flex flex-wrap gap-2 border-b border-slate-100 px-4 py-2">
-                {(ledger.buckets || []).map((b: any) => (
-                  <span key={b.category} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${b.over ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {b.category}: {num(b.actual)} / {num(b.budget)}{b.over ? ' — over' : ` — ${num(b.remaining)} left`}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Date</th>
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Entity</th>
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Category</th>
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Account</th>
-                    <th className="px-2 py-2.5 text-right font-semibold align-middle">Actual (USD)</th>
-                    <th className="px-2 py-2.5 text-right font-semibold align-middle">Projected (USD)</th>
-                    <th className="px-2 py-2.5 text-right font-semibold align-middle">Variance</th>
-                    <th className="px-2 py-2.5 font-semibold text-center align-middle">Status</th>
-                    <th className="w-[40px] px-2 py-2.5 align-middle"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!(ledger?.rows) ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Loading ledger…</td></tr>
-                  ) : ledger.rows.length === 0 ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">No ledger rows this month.</td></tr>
-                  ) : (
-                    ledger.rows.map((r: any) => ledgerRow(r))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {ledger?.totals && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-emerald-600 bg-emerald-50/50 px-4 py-2.5 text-sm">
-                <span className="font-extrabold text-slate-800">Actual net <span className="font-mono">{num(ledger.totals.actualNet)}</span></span>
-                <span className="font-semibold text-slate-500">Projected net <span className="font-mono">{num(ledger.totals.projectedNet)}</span></span>
-                <span className={`font-extrabold font-mono ${ledger.totals.gap > 0.005 ? 'text-emerald-600' : ledger.totals.gap < -0.005 ? 'text-rose-600' : 'text-slate-500'}`}>
-                  Gap {ledger.totals.gap > 0 ? '+' : ''}{num(ledger.totals.gap)}
-                </span>
-              </div>
-            )}
-          </div>
-
+          )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] border-collapse">
               <thead>
@@ -1047,9 +972,9 @@ export default function EstadoBancario() {
                   <th className="w-[150px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
                   <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Category">Cat.</th>
                   <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Frequency">Freq.</th>
-                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Debit (USD)</th>
-                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Credit (USD)</th>
-                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Balance (USD)</th>
+                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Debit</th>
+                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Credit</th>
+                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>
                   <th className="w-[56px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>
@@ -1254,6 +1179,32 @@ export default function EstadoBancario() {
                   placeholder="Finance question… or 'PDF de enero a marzo'"
                   className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 />
+                {typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) && (
+                  <button
+                    onClick={() => {
+                      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+                      if (listening) { recogRef.current?.stop(); return }
+                      const r = new SR()
+                      r.lang = 'es-ES'
+                      r.interimResults = false
+                      r.maxAlternatives = 1
+                      r.onresult = (e: any) => {
+                        const t = e.results[0][0].transcript as string
+                        setChatInput((prev) => (prev ? prev + ' ' : '') + t)
+                      }
+                      r.onend = () => setListening(false)
+                      r.onerror = () => setListening(false)
+                      recogRef.current = r
+                      setListening(true)
+                      try { r.start() } catch { setListening(false) }
+                    }}
+                    className={`rounded-xl px-3 py-2 text-sm font-bold ${listening ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600'}`}
+                    aria-label={listening ? 'Detener dictado' : 'Dictar por voz'}
+                    title="Dictar por voz"
+                  >
+                    {listening ? '⏹' : '🎤'}
+                  </button>
+                )}
                 <button onClick={() => askAI(chatInput)} disabled={chatBusy} className="rounded-xl bg-[#40b9a1] px-4 py-2 text-sm font-bold text-[#10243f] disabled:opacity-50" aria-label="Send">
                   ➤
                 </button>

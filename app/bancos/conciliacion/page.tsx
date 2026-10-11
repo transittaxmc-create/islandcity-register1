@@ -626,6 +626,29 @@ export default function EstadoBancario() {
     setTransferBusy(false)
   }
 
+  // Auto-enlace por origen: solo emparejamientos únicos (mismo monto, ±3 días).
+  // Los ambiguos NO se adivinan: quedan abajo para que Miguel los apruebe.
+  async function autoLink() {
+    setTransferBusy(true)
+    setTransferMsg('')
+    try {
+      const j = await fetch('/api/reconcile/transfers/auto', { method: 'POST' }).then((r) => r.json())
+      if (j.error) throw new Error(j.error)
+      if (j.ambiguous?.length) setTransferCands(j.ambiguous)
+      setTransferMsg(
+        j.linked
+          ? `⚡ ${j.linked} transfer(s) auto-linked to their origin.${j.ambiguous?.length ? ` ${j.ambiguous.length} ambiguous — review below.` : ''}`
+          : j.ambiguous?.length
+            ? `${j.ambiguous.length} ambiguous — review and approve below.`
+            : 'No new transfers to link.'
+      )
+      load()
+    } catch (e: any) {
+      setTransferMsg('Could not auto-link: ' + e.message)
+    }
+    setTransferBusy(false)
+  }
+
   async function analyzeTransfer(c: any) {
     const key = `${c.from.id}>${c.to.id}`
     setAnalyzingKey(key)
@@ -669,6 +692,48 @@ export default function EstadoBancario() {
     return chain
   }
 
+  // Origen de cada transferencia vinculada (regla de Miguel: cada transfer lleva su
+  // origen conectado). La receptora muestra "origen: [banco]"; la emisora "→ [destino]".
+  // Cadenas multi-salto muestran el trail completo (origen real del dinero).
+  const txOriginTag = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const l of links) {
+      if (!l.from || !l.to) continue
+      const chain = trailFor(l)
+      const hops = chain.map((c: any) => c.from?.bank_account)
+        .concat([chain[chain.length - 1].to?.bank_account]).filter(Boolean)
+      const trail = hops.length > 2 ? hops.map((h: string) => acctShort(h)).join(' → ') : null
+      m.set(String(l.from_tx), `→ ${acctShort(l.to.bank_account)}`)
+      m.set(String(l.to_tx), trail ? `origen: ${trail}` : `origen: ${acctShort(l.from.bank_account)}`)
+    }
+    return m
+  }, [links, acctMeta])
+
+  // Transferencias vinculadas visibles en el filtro actual, con su trail de origen
+  // (para la sección Conciliación: de dónde vino cada dólar).
+  const originTrails = useMemo(() => {
+    const ids = new Set(ftx.map((t) => String(t.id)))
+    const out: { key: string; trail: string; date: string; amount: number }[] = []
+    const seen = new Set<string>()
+    for (const l of links) {
+      if (!l.from || !l.to) continue
+      if (!ids.has(String(l.from_tx)) && !ids.has(String(l.to_tx))) continue
+      const chain = trailFor(l)
+      const hops = chain.map((c: any) => c.from?.bank_account)
+        .concat([chain[chain.length - 1].to?.bank_account]).filter(Boolean)
+      const key = hops.join('>')
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({
+        key,
+        trail: hops.map((h: string) => acctShort(h)).join(' → '),
+        date: fmtDate(l.from.date),
+        amount: Number(l.from.debit) || 0,
+      })
+    }
+    return out.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12)
+  }, [links, ftx, acctMeta])
+
   const journalRow = (t: Tx, kind: 'real' | 'proy') => {
     const tb = kind === 'real' ? trueBal.get(t.id) : null
     const pb = (t as any).pb_class as string | null
@@ -676,7 +741,32 @@ export default function EstadoBancario() {
     <tr key={t.id} className={`border-t border-slate-100 ${kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
       {selCell(t.id, 'bank_account', t.bank_account, lists.accounts, false, acctShort(t.bank_account))}
-      {txtCell(t.id, 'detail', t.detail, { display: shortDetail(t.detail) })}
+      {(() => {
+        const tag = txOriginTag.get(String(t.id))
+        const isEd = editing?.id === t.id && editing?.field === 'detail'
+        if (isEd) {
+          return (
+            <td key="detail" className="px-2 py-2 text-sm align-middle">
+              <input
+                autoFocus
+                type="text"
+                defaultValue={t.detail ?? ''}
+                className="w-full rounded border border-[#40b9a1] bg-white px-1 py-0.5 text-sm"
+                onBlur={(e) => saveEdit(t.id, 'detail', e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(null) }}
+              />
+            </td>
+          )
+        }
+        return (
+          <td key="detail" className="px-2 py-2 text-sm align-middle" onClick={() => setEditing({ id: t.id, field: 'detail' })}>
+            <span className="block max-w-[150px] cursor-text truncate rounded py-0.5 hover:bg-slate-100" title={String(t.detail ?? '')}>
+              {shortDetail(t.detail)}
+            </span>
+            {tag && <span className="block max-w-[150px] truncate text-[10px] font-bold text-[#0f766e]">⛓ {tag}</span>}
+          </td>
+        )
+      })()}
       {selCell(t.id, 'category', t.category, lists.categories, true)}
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES, true)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
@@ -884,6 +974,17 @@ export default function EstadoBancario() {
               <span className="text-[12px] font-semibold text-slate-500">Diferencia por conciliar</span>
               <span className={`flex-none font-mono text-[13px] font-bold ${Math.abs(bridge.residual) < 0.01 ? 'text-[#16a34a]' : 'text-[#b45309]'}`}>{money(bridge.residual)}</span>
             </div>
+            {originTrails.length > 0 && (
+              <div className="border-t border-slate-100 py-2">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Origen de transferencias</p>
+                {originTrails.map((o) => (
+                  <p key={o.key} className="truncate text-[11px] text-slate-600">
+                    <span className="font-bold text-[#0f766e]">⛓ {o.trail}</span>
+                    <span className="text-slate-400"> · {o.date} · {money(o.amount)}</span>
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -952,6 +1053,13 @@ export default function EstadoBancario() {
                 >
                   {transferBusy ? 'Searching…' : '🔍 Find transfers'}
                 </button>
+                <button
+                  onClick={autoLink}
+                  disabled={transferBusy}
+                  title="Auto-link unique matches to their origin (ambiguous ones stay for your review)"
+                  className="rounded-xl bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] hover:bg-[#35a48f] disabled:opacity-50"
+                >
+                  ⚡ Auto-link</button>
               </div>
               {transferMsg && <p className="mb-2 text-xs text-slate-500">{transferMsg}</p>}
               {links.length > 0 && (

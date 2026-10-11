@@ -3,30 +3,17 @@
 import { useEffect, useMemo, useState } from 'react'
 
 type Acct = { name: string; current_balance: number | null; institution: string | null; display_order: number }
-type MonthData = { ym: string; inc: number; exp: number; byCat: Map<string, number> }
-type SummaryMonth = { ym: string; inc: number; exp: number; byCat: [string, number][] }
 type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; debit: number; credit: number }
 type RuleItem = { id: string; concept: string; amount: number; type: string; frequency: string; pay_day: string; end_date: string | null }
-type LedgerRowT = {
-  id: string; date: string; entity: string; fullDetail: string; category: string; account: string
-  actual: number; projected: number; variance: number; status: string
-  classification: string; ruleId: string | null; ruleFrequency: string | null; txId: string | null; isRecurringRule: boolean
-}
+type Tx = { id: string; date: string; detail: string; debit: number; credit: number; category: string }
 
 const SUMMARY_CACHE = 'proj-summary-v1'
-const LEDGER_CACHE = 'ledger-2026-v1'
+const MAIN_BANK_KEY = 'proj-main-bank'
+const OTHER_BAL_KEY = 'proj-other-bal'
+const DEFAULT_MAIN = 'Access Account …6393'
 
 const num2 = (v: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0)
-
-const STATUS_PILL: Record<string, string> = {
-  MATCHED: 'bg-emerald-100 text-emerald-700',
-  SUGGESTED: 'bg-amber-100 text-amber-700',
-  UNPLANNED: 'bg-rose-100 text-rose-700',
-  TRANSFER: 'bg-slate-200 text-slate-500',
-  BONUS: 'bg-yellow-100 text-yellow-800',
-  PLANNED_UNSPENT: 'bg-sky-100 text-sky-700',
-}
 
 const money = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
@@ -57,6 +44,11 @@ const fmtD = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number)
   if (!y || !m || !d) return iso
   return `${MES[m - 1]} ${String(d).padStart(2, '0')}`
+}
+
+function localToday() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const iconProps = {
@@ -137,66 +129,54 @@ function Kpi({
 const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
+type MoveRow = { key: string; date: string; label: string; sub: string; net: number; chronoBal: number }
+
 export default function ProjectionsPanel() {
   const [accounts, setAccounts] = useState<Acct[]>([])
-  const [months, setMonths] = useState<SummaryMonth[]>([])
-  const [projItems, setProjItems] = useState<ProjItem[]>([])
-  const [projTotals, setProjTotals] = useState({ income: 0, expenses: 0 })
-  const [ledgerRows, setLedgerRows] = useState<LedgerRowT[]>([])
-  const [ledgerBuckets, setLedgerBuckets] = useState<any[]>([])
-  const [ledgerTotals, setLedgerTotals] = useState({ actualNet: 0, projectedNet: 0, gap: 0 })
-  const [ledgerAlert, setLedgerAlert] = useState<any>(null)
-  const [ledgerLoading, setLedgerLoading] = useState(true)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState(false)
+  const [projected, setProjected] = useState<ProjItem[]>([])
   const [ruleItems, setRuleItems] = useState<RuleItem[]>([])
+  const [mainBank, setMainBank] = useState<string>(DEFAULT_MAIN)
+  const [otherEdits, setOtherEdits] = useState<Record<string, string>>({})
+  const [mainTxs, setMainTxs] = useState<Tx[]>([])
   const [sortKey, setSortKey] = useState('date-asc')
   const [newRule, setNewRule] = useState<null | {
     date: string; detail: string; ptype: string; amount: string; frequency: string; end_date: string
   }>(null)
   const [ruleBusy, setRuleBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
-  const applyLedger = (lj: any) => {
-    setLedgerRows(((lj.rows || []) as LedgerRowT[]).slice().sort((a, b) => String(a.date).localeCompare(String(b.date))))
-    setLedgerBuckets(lj.buckets || [])
-    setLedgerTotals(lj.totals || { actualNet: 0, projectedNet: 0, gap: 0 })
-    setLedgerAlert(lj.alert || null)
+  const today = useMemo(localToday, [])
+  const year = today.slice(0, 4)
+  const yearEnd = `${year}-12-31`
+
+  // Preferencias guardadas: banco principal + balances corregidos
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem(MAIN_BANK_KEY)
+      if (s) setMainBank(s)
+      const o = localStorage.getItem(OTHER_BAL_KEY)
+      if (o) setOtherEdits(JSON.parse(o) || {})
+    } catch {}
+  }, [])
+
+  const pickMain = (name: string) => {
+    setMainBank(name)
+    try { localStorage.setItem(MAIN_BANK_KEY, name) } catch {}
   }
 
-  useEffect(() => {
-    let alive = true
-    try {
-      const raw = sessionStorage.getItem(LEDGER_CACHE)
-      if (raw) {
-        applyLedger(JSON.parse(raw))
-        setLedgerLoading(false)
-      }
-    } catch {}
-    ;(async () => {
-      try {
-        let sg = 0
-        let sb2 = 0
-        try {
-          sg = Number(localStorage.getItem('saving-goal') || 0)
-          sb2 = Number(localStorage.getItem('safety-buffer') || 0)
-        } catch {}
-        const lj = await fetch(`/api/reconcile/ledger?month=2026-10&savingGoal=${sg}&safetyBuffer=${sb2}`).then((r) => r.json())
-        if (lj?.error) throw new Error(lj.error)
-        if (!alive) return
-        applyLedger(lj)
-        try {
-          sessionStorage.setItem(LEDGER_CACHE, JSON.stringify(lj))
-        } catch {}
-      } catch {
-        // keep cache or empty state; journal fetch below still paints KPIs/charts
-      } finally {
-        if (alive) setLedgerLoading(false)
-      }
-    })()
-    return () => {
-      alive = false
-    }
-  }, [])
+  const setOtherBal = (name: string, v: string) => {
+    setOtherEdits((prev) => {
+      const n = { ...prev, [name]: v }
+      try { localStorage.setItem(OTHER_BAL_KEY, JSON.stringify(n)) } catch {}
+      return n
+    })
+  }
+
+  const resetOtherBals = () => {
+    setOtherEdits({})
+    try { localStorage.removeItem(OTHER_BAL_KEY) } catch {}
+  }
 
   const applySummary = (sj: any) => {
     const accs: Acct[] = ((sj.accounts || []) as any[])
@@ -209,10 +189,8 @@ export default function ProjectionsPanel() {
       .filter((x) => x.name)
       .sort((a, b) => a.display_order - b.display_order)
     setAccounts(accs)
-    setMonths((sj.monthly || []) as SummaryMonth[])
     const items = ((sj.projected || []) as ProjItem[]).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
-    setProjItems(items)
-    setProjTotals(sj.projTotals || { income: 0, expenses: 0 })
+    setProjected(items)
     setRuleItems(((sj.ruleItems || []) as RuleItem[]).slice().sort((a, b) => String(a.pay_day).localeCompare(String(b.pay_day))))
   }
 
@@ -266,7 +244,6 @@ export default function ProjectionsPanel() {
 
   useEffect(() => {
     let alive = true
-    // Ticket C: paint cache instantly, then silent-refresh in background.
     try {
       const raw = sessionStorage.getItem(SUMMARY_CACHE)
       if (raw) {
@@ -284,7 +261,7 @@ export default function ProjectionsPanel() {
           sessionStorage.setItem(SUMMARY_CACHE, JSON.stringify(sj))
         } catch {}
       } catch {
-        if (alive && months.length === 0) setLoadError(true)
+        if (alive) setLoadError(true)
       } finally {
         if (alive) setLoading(false)
       }
@@ -295,56 +272,82 @@ export default function ProjectionsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const bankTotal = useMemo(
-    () => accounts.reduce((s, a) => s + (Number(a.current_balance) || 0), 0),
-    [accounts]
-  )
+  // Banco principal efectivo (con fallback si el guardado ya no existe)
+  const effMain = accounts.some((a) => a.name === mainBank)
+    ? mainBank
+    : accounts.find((a) => a.name === DEFAULT_MAIN)?.name || accounts[0]?.name || ''
 
-  // KPIs use server-aggregated projected totals (ticket A).
-  const totPI = projTotals.income
-  const totPE = projTotals.expenses
-  const grandTotal = bankTotal + totPI - totPE
-  const projIncCount = projItems.filter((p) => Number(p.credit) > 0).length
-  const projExpCount = projItems.filter((p) => Number(p.debit) > 0).length
-
-  const sortedLedger = useMemo(() => {
-    const r = [...ledgerRows]
-    switch (sortKey) {
-      case 'date-desc':
-        return r.sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
-      case 'entity':
-        return r.sort((a, b) => a.entity.localeCompare(b.entity) || a.date.localeCompare(b.date))
-      case 'amount-desc':
-        return r.sort((a, b) => Math.abs(b.actual) - Math.abs(a.actual))
-      case 'amount-asc':
-        return r.sort((a, b) => Math.abs(a.actual) - Math.abs(b.actual))
-      case 'status':
-        return r.sort((a, b) => a.status.localeCompare(b.status) || a.date.localeCompare(b.date))
-      default:
-        return r.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+  // Transacciones reales del banco principal desde hoy hasta fin de año
+  useEffect(() => {
+    if (!effMain) return
+    let alive = true
+    ;(async () => {
+      const m0 = Number(today.slice(5, 7))
+      const all: Tx[] = []
+      for (let m = m0; m <= 12; m++) {
+        const ym = `${year}-${String(m).padStart(2, '0')}`
+        try {
+          const d = await fetch(`/api/reconcile/data?month=${ym}`).then((r) => r.json())
+          for (const t of d.transactions || []) {
+            if (t.bank_account === effMain && String(t.date) >= today && t.entry_type !== 'proyectado') {
+              all.push({
+                id: String(t.id),
+                date: t.date,
+                detail: t.detail || '',
+                debit: Number(t.debit) || 0,
+                credit: Number(t.credit) || 0,
+                category: t.category || 'Otro',
+              })
+            }
+          }
+        } catch {}
+      }
+      if (alive) setMainTxs(all)
+    })()
+    return () => {
+      alive = false
     }
-  }, [ledgerRows, sortKey])
+  }, [effMain, today, year])
 
-  const monthly: MonthData[] = useMemo(
-    () =>
-      months.map((m) => {
-        const byCat = new Map<string, number>()
-        for (const [k, v] of m.byCat || []) byCat.set(k, v)
-        return { ym: m.ym, inc: m.inc, exp: m.exp, byCat }
-      }),
-    [months]
+  // Proyecciones dentro de la ventana: hoy → 31 dic
+  const projWin = useMemo(
+    () => projected.filter((p) => p.date >= today && p.date <= yearEnd),
+    [projected, today, yearEnd]
   )
 
-  const catTotal = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const mo of monthly) for (const [k, v] of mo.byCat) m.set(k, (m.get(k) || 0) + v)
-    return [...m.entries()].sort((a, b) => b[1] - a[1])
-  }, [monthly])
+  // Gráfica de barras: proyectado por mes (mes actual → dic)
+  const winMonths = useMemo(() => {
+    const m0 = Number(today.slice(5, 7))
+    const arr: { ym: string; inc: number; exp: number }[] = []
+    for (let m = m0; m <= 12; m++) {
+      const ym = `${year}-${String(m).padStart(2, '0')}`
+      let inc = 0
+      let exp = 0
+      for (const p of projWin) {
+        if (p.date.slice(0, 7) === ym) {
+          inc += Number(p.credit) || 0
+          exp += Number(p.debit) || 0
+        }
+      }
+      arr.push({ ym, inc, exp })
+    }
+    return arr
+  }, [projWin, today, year])
 
-  const maxBar = Math.max(1, ...monthly.flatMap((m) => [m.inc, m.exp]))
+  // Dona: gastos proyectados por detalle
+  const donutProj = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const p of projWin) {
+      const d = Number(p.debit) || 0
+      if (d > 0) map.set(p.detail, (map.get(p.detail) || 0) + d)
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1])
+  }, [projWin])
+
+  const maxBar = Math.max(1, ...winMonths.flatMap((m) => [m.inc, m.exp]))
   const barTicks = [maxBar, (maxBar * 3) / 4, maxBar / 2, maxBar / 4, 0]
 
-  const donutSegs = catTotal.slice(0, 6) as [string, number][]
+  const donutSegs = donutProj.slice(0, 6) as [string, number][]
   const donutTotal = donutSegs.reduce((s, kv) => s + kv[1], 0)
   const R = 70
   const CIRC = 2 * Math.PI * R
@@ -363,12 +366,74 @@ export default function ProjectionsPanel() {
     }
   })
 
+  // Balances: banco principal + otros (editables)
+  const mainAcct = accounts.find((a) => a.name === effMain)
+  const mainBal = Number(mainAcct?.current_balance) || 0
+  const otherAccts = useMemo(() => accounts.filter((a) => a.name && a.name !== effMain), [accounts, effMain])
+  const otherVal = (a: Acct) => {
+    const raw = otherEdits[a.name]
+    if (raw !== undefined && raw !== '') {
+      const n = Number(raw)
+      return isNaN(n) ? 0 : n
+    }
+    return Number(a.current_balance) || 0
+  }
+  const othersTotal = otherAccts.reduce((s, a) => s + otherVal(a), 0)
+  const bankTotal = mainBal + othersTotal
+
+  const winInc = projWin.reduce((s, p) => s + (Number(p.credit) || 0), 0)
+  const winExp = projWin.reduce((s, p) => s + (Number(p.debit) || 0), 0)
+  const winIncCount = projWin.filter((p) => Number(p.credit) > 0).length
+  const winExpCount = projWin.filter((p) => Number(p.debit) > 0).length
+  const grandTotal = bankTotal + winInc - winExp
+
+  // Movimientos del registro (solo banco principal), con balance corrido cronológico
+  const movesChrono: MoveRow[] = useMemo(() => {
+    const arr = [
+      ...mainTxs.map((t) => ({
+        key: `tx-${t.id}`,
+        date: t.date,
+        label: t.detail,
+        sub: t.category,
+        net: (Number(t.credit) || 0) - (Number(t.debit) || 0),
+      })),
+      ...projWin.map((p) => ({
+        key: `pj-${p.id}`,
+        date: p.date,
+        label: p.detail,
+        sub: `Proyección · ${p.frequency || ''}`,
+        net: (Number(p.credit) || 0) - (Number(p.debit) || 0),
+      })),
+    ].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
+    let run = bankTotal
+    return arr.map((m) => {
+      run += m.net
+      return { ...m, chronoBal: run }
+    })
+  }, [mainTxs, projWin, bankTotal])
+
+  const movesSorted = useMemo(() => {
+    const r = [...movesChrono]
+    switch (sortKey) {
+      case 'date-desc':
+        return r.sort((a, b) => b.date.localeCompare(a.date) || a.key.localeCompare(b.key))
+      case 'entity':
+        return r.sort((a, b) => a.label.localeCompare(b.label) || a.date.localeCompare(b.date))
+      case 'amount-desc':
+        return r.sort((a, b) => Math.abs(b.net) - Math.abs(a.net))
+      case 'amount-asc':
+        return r.sort((a, b) => Math.abs(a.net) - Math.abs(b.net))
+      default:
+        return r
+    }
+  }, [movesChrono, sortKey])
+
   if (loading) {
     return (
       <div>
         <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
-        <p className="mt-0.5 text-xs text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
-        <p className="mt-6 text-sm text-slate-400">Cargando datos del 2026…</p>
+        <p className="mt-0.5 text-xs text-slate-500">Hoy → 31 de diciembre · banco principal + proyecciones.</p>
+        <p className="mt-6 text-sm text-slate-400">Cargando…</p>
       </div>
     )
   }
@@ -386,14 +451,16 @@ export default function ProjectionsPanel() {
   return (
     <div>
       <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
-      <p className="mt-0.5 text-xs text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
+      <p className="mt-0.5 text-xs text-slate-500">
+        {fmtD(today)} → 31 dic {year} · banco principal + proyecciones.
+      </p>
 
       {/* KPIs */}
       <section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi icon={IBar} label="Ingresos proyectados" value={money(totPI)} sub={`${projIncCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
-        <Kpi icon={ICart} label="Gastos proyectados" value={money(totPE)} sub={`${projExpCount} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
-        <Kpi icon={IDb} label="Balance bancario" value={money(bankTotal)} sub={`${accounts.length} cuentas · saldo final`} valueColor="text-slate-800" accent="#3b82f6" />
-        <Kpi icon={IPct} label="Balance total" value={money(grandTotal)} sub="Banco + ingresos − gastos" valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
+        <Kpi icon={IBar} label="Ingresos proyectados" value={money(winInc)} sub={`${winIncCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
+        <Kpi icon={ICart} label="Gastos proyectados" value={money(winExp)} sub={`${winExpCount} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
+        <Kpi icon={IDb} label="Balance bancario" value={money(bankTotal)} sub={`${accounts.length} cuentas · a hoy`} valueColor="text-slate-800" accent="#3b82f6" />
+        <Kpi icon={IPct} label="Balance total" value={money(grandTotal)} sub="Banco + proy. − proy." valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
       </section>
 
       {/* Proyecciones — reglas con entrada en línea */}
@@ -408,7 +475,7 @@ export default function ProjectionsPanel() {
               <button
                 onClick={() =>
                   setNewRule({
-                    date: new Date().toISOString().slice(0, 10),
+                    date: today,
                     detail: '',
                     ptype: 'gasto',
                     amount: '',
@@ -500,10 +567,10 @@ export default function ProjectionsPanel() {
         </div>
       </section>
 
-      {/* Barras + dona */}
+      {/* Barras + dona — solo ventana de proyección */}
       <section className="mt-3 grid gap-3 xl:grid-cols-5">
         <div className={`${card} xl:col-span-3`}>
-          <h3 className={h3}>Ingresos vs gastos por mes</h3>
+          <h3 className={h3}>Proyectado por mes</h3>
           <div className="mt-2 flex gap-2">
             <div className="flex h-[110px] w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-slate-400">
               {barTicks.map((t) => (
@@ -518,7 +585,7 @@ export default function ProjectionsPanel() {
                   ))}
                 </div>
                 <div className="relative flex h-[110px] items-end gap-1 sm:gap-2">
-                  {monthly.map((m) => (
+                  {winMonths.map((m) => (
                     <div key={m.ym} className="flex h-full flex-1 items-end justify-center gap-1">
                       <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.inc / maxBar) * 100}%`, background: BLUE }} title={`Ingresos ${money(m.inc)}`} />
                       <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.exp / maxBar) * 100}%`, background: ORANGE }} title={`Gastos ${money(m.exp)}`} />
@@ -527,7 +594,7 @@ export default function ProjectionsPanel() {
                 </div>
               </div>
               <div className="mt-1 flex gap-1 sm:gap-2">
-                {monthly.map((m) => (
+                {winMonths.map((m) => (
                   <div key={m.ym} className="flex-1 text-center text-[9px] font-medium text-slate-500">
                     {MES[Number(m.ym.slice(5)) - 1]}
                   </div>
@@ -542,7 +609,7 @@ export default function ProjectionsPanel() {
         </div>
 
         <div className={`${card} xl:col-span-2`}>
-          <h3 className={h3}>Gastos por categoría</h3>
+          <h3 className={h3}>Gastos proyectados</h3>
           <div className="mt-1 flex items-center gap-4">
             <div className="relative size-[120px] shrink-0">
             <svg viewBox="0 0 180 180" className="size-full">
@@ -564,7 +631,7 @@ export default function ProjectionsPanel() {
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex max-w-[86px] flex-col items-center justify-center px-1 text-center leading-tight">
                 <div className="w-full truncate text-[13px] font-extrabold tabular-nums tracking-tight text-slate-800">{money(donutTotal)}</div>
-                <div className="text-[8px] font-medium text-slate-400">Total gastos</div>
+                <div className="text-[8px] font-medium text-slate-400">Total proyectado</div>
               </div>
             </div>
             </div>
@@ -576,21 +643,32 @@ export default function ProjectionsPanel() {
                   <span className="font-bold tabular-nums text-slate-700">{donutTotal > 0 ? Math.round((s.v / donutTotal) * 100) : 0}%</span>
                 </div>
               ))}
-              {dSegs.length === 0 && <p className="py-2 text-center text-xs text-slate-400">Sin gastos registrados.</p>}
+              {dSegs.length === 0 && <p className="py-2 text-center text-xs text-slate-400">Sin gastos proyectados.</p>}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Full Register — Comparative Ledger: Reality vs Plan */}
+      {/* Registro de proyección — banco principal */}
       <section className="mt-3">
         <div className={`${card} flex flex-col`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3">
-              <h3 className={h3}>Full Register 2026</h3>
-              <p className="text-[11px] text-slate-400">Reality vs plan — did I spend/earn what I planned?</p>
+              <h3 className={h3}>Registro de proyección</h3>
+              <p className="text-[11px] text-slate-400">{fmtD(today)} → 31 dic {year} · solo banco principal</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-[11px] font-semibold text-slate-500">Banco principal</label>
+              <select
+                value={effMain}
+                onChange={(e) => pickMain(e.target.value)}
+                title="Banco principal para proyecciones"
+                className="max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+              >
+                {accounts.map((a) => (
+                  <option key={a.name} value={a.name}>{shortBank(a)}</option>
+                ))}
+              </select>
               <select
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value)}
@@ -599,99 +677,102 @@ export default function ProjectionsPanel() {
               >
                 <option value="date-asc">Fecha ↑</option>
                 <option value="date-desc">Fecha ↓</option>
-                <option value="entity">Proveedor A–Z</option>
+                <option value="entity">Detalle A–Z</option>
                 <option value="amount-desc">Monto ↓</option>
                 <option value="amount-asc">Monto ↑</option>
-                <option value="status">Estado</option>
               </select>
               <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
-                {ledgerRows.length} rows
+                {movesSorted.length} movs
               </span>
             </div>
           </div>
-          {ledgerAlert?.message && (
-            <div className={`mt-2 rounded-xl border px-4 py-2 text-xs font-bold ${ledgerAlert.level === 'red' ? 'border-red-200 bg-red-50 text-red-700' : ledgerAlert.level === 'orange' ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-yellow-200 bg-yellow-50 text-yellow-700'}`}>
-              {ledgerAlert.level === 'red' ? '🔴 ' : ledgerAlert.level === 'orange' ? '🟠 ' : '🟡 '}{ledgerAlert.message}
-              <span className="ml-2 font-mono font-semibold">Net {num2(ledgerAlert.net)}</span>
-            </div>
-          )}
-          {ledgerBuckets.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {ledgerBuckets.map((b: any) => (
-                <span key={b.category} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${b.over ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                  {b.category}: {num2(b.actual)} / {num2(b.budget)}{b.over ? ' — over' : ` — ${num2(b.remaining)} left`}
-                </span>
-              ))}
-            </div>
-          )}
+
           <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[900px] border-collapse text-sm">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead>
                 <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Date</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Entity</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Category</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Account</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Actual (USD)</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Projected (USD)</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Variance</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-center font-medium">Status</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Banco / Detalle</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Tipo</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Balance</th>
                 </tr>
               </thead>
               <tbody>
-                {ledgerLoading && ledgerRows.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">Loading ledger…</td></tr>
-                ) : ledgerRows.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">No ledger rows — add transactions or projection rules.</td></tr>
+                {/* Línea 1: banco principal */}
+                <tr className="border-t-2 border-[#3b82f6] bg-blue-50/60">
+                  <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-600">{fmtD(today)}</td>
+                  <td className="px-2 py-2 font-bold text-slate-800">{mainAcct ? shortBank(mainAcct) : effMain}</td>
+                  <td className="whitespace-nowrap px-2 py-2 text-xs font-semibold text-blue-700">Banco principal</td>
+                  <td className="px-2 py-2 text-right text-slate-400">—</td>
+                  <td className="whitespace-nowrap px-2 py-2 text-right font-extrabold tabular-nums text-slate-900">{money(mainBal)}</td>
+                </tr>
+                {/* Otros bancos: balances editables */}
+                {otherAccts.map((a) => (
+                  <tr key={a.name} className="border-t border-slate-100 bg-slate-50/50">
+                    <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(today)}</td>
+                    <td className="px-2 py-1.5 font-medium text-slate-600">{shortBank(a)}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-400">Otro banco</td>
+                    <td className="px-2 py-1.5 text-right">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={otherEdits[a.name] ?? ''}
+                        placeholder={num2(Number(a.current_balance) || 0)}
+                        onChange={(e) => setOtherBal(a.name, e.target.value)}
+                        title="Balance a hoy (editable)"
+                        className="w-28 rounded border border-slate-200 bg-white px-1 py-0.5 text-right font-mono text-sm text-slate-700"
+                      />
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-slate-700">{money(otherVal(a))}</td>
+                  </tr>
+                ))}
+                {otherAccts.length > 0 && (
+                  <tr className="border-t border-slate-200 bg-white">
+                    <td colSpan={3} className="px-2 py-1.5 text-right text-[11px] text-slate-400">
+                      <button onClick={resetOtherBals} className="underline hover:text-slate-600">restablecer balances</button>
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-[11px] font-semibold text-slate-500">Total bancos</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right font-extrabold tabular-nums text-slate-900">{money(bankTotal)}</td>
+                  </tr>
+                )}
+                {/* Movimientos del banco principal */}
+                {movesSorted.length === 0 ? (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos proyectados — añade proyecciones arriba.</td></tr>
                 ) : (
-                  sortedLedger.map((r) => (
-                    <LedgerRowView key={r.id} r={r} />
+                  movesSorted.map((r) => (
+                    <tr key={r.key} className="border-t border-slate-100 even:bg-slate-50/60">
+                      <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
+                      <td className="px-2 py-1.5">
+                        <div className="max-w-[240px] truncate font-medium text-slate-700">{r.label}</div>
+                        <div className="text-[10px] text-slate-400">{r.sub}</div>
+                      </td>
+                      <td className={`whitespace-nowrap px-2 py-1.5 text-xs font-semibold ${r.net >= 0 ? 'text-[#16a34a]' : 'text-red-500'}`}>
+                        {r.net >= 0 ? 'Ingreso' : 'Gasto'}
+                      </td>
+                      <td className={`whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums ${r.net >= 0 ? 'text-[#16a34a]' : 'text-slate-800'}`}>
+                        {r.net >= 0 ? '+' : '−'}{num2(Math.abs(r.net))}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-slate-600">{num2(r.chronoBal)}</td>
+                    </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
-            <span className="font-extrabold text-slate-800">Actual net <span className="font-mono tabular-nums">{num2(ledgerTotals.actualNet)}</span></span>
-            <span className="font-semibold text-slate-500">Projected net <span className="font-mono tabular-nums">{num2(ledgerTotals.projectedNet)}</span></span>
-            <span className={`font-extrabold font-mono tabular-nums ${ledgerTotals.gap > 0.005 ? 'text-emerald-600' : ledgerTotals.gap < -0.005 ? 'text-rose-600' : 'text-slate-500'}`}>
-              Gap {ledgerTotals.gap > 0 ? '+' : ''}{num2(ledgerTotals.gap)}
+            <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
+            <span className="font-semibold text-slate-500">
+              <span className="text-[#16a34a]">+{num2(winInc)}</span>
+              {' · '}
+              <span className="text-red-500">−{num2(winExp)}</span>
+            </span>
+            <span className={`font-extrabold font-mono tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'}`}>
+              Final {money(grandTotal)}
             </span>
           </div>
         </div>
       </section>
     </div>
-  )
-}
-
-function LedgerRowView({ r }: { r: LedgerRowT }) {
-  const isTransfer = r.status === 'TRANSFER'
-  const isBonus = r.status === 'BONUS'
-  const vGood = r.variance > 0.005
-  const vBad = r.variance < -0.005
-  return (
-    <tr
-      title={r.fullDetail}
-      className={`border-t border-slate-100 ${isTransfer ? 'bg-slate-50 italic' : isBonus ? 'bg-yellow-50/60' : 'even:bg-slate-50/60'}`}
-    >
-      <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
-      <td className="max-w-[190px] truncate px-2 py-1.5 font-medium text-slate-700">{r.entity}</td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-500">{r.category}</td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-500">{r.account}</td>
-      <td className={`whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums ${isTransfer ? 'text-slate-400' : 'text-slate-800'}`}>
-        {r.actual === 0 && r.txId == null ? '–' : num2(r.actual)}
-      </td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-slate-500">
-        {r.projected === 0 && !r.isRecurringRule ? '0.00' : num2(r.projected)}
-      </td>
-      <td className={`whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums ${vGood ? 'text-emerald-600' : vBad ? 'text-rose-600' : 'text-slate-400'}`}>
-        {Math.abs(r.variance) < 0.005 ? '0.00' : `${r.variance > 0 ? '+' : '−'}${num2(Math.abs(r.variance))}`}
-      </td>
-      <td className="whitespace-nowrap px-2 py-1.5 text-center">
-        <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_PILL[r.status] || 'bg-slate-100 text-slate-500'}`}>
-          {r.status === 'PLANNED_UNSPENT' ? 'PLANNED' : r.status}
-        </span>
-      </td>
-    </tr>
   )
 }

@@ -15,6 +15,19 @@ const FALLBACK_ACCOUNTS = ['Cuenta principal']
 const money = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
 
+// Fila del puente de conciliación (diseño firme, sin animaciones)
+function BridgeRow({ label, value, valueClass, tag }: { label: string; value: number; valueClass?: string; tag?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-slate-50 py-2">
+      <span className="min-w-0 truncate text-[13px] font-semibold text-slate-600">
+        {label}
+        {tag && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-slate-500">{tag}</span>}
+      </span>
+      <span className={`flex-none font-mono text-[14px] font-bold text-slate-800 ${valueClass || ''}`}>{money(value)}</span>
+    </div>
+  )
+}
+
 const todayISO = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -232,6 +245,35 @@ export default function EstadoBancario() {
     if (!rows.some((a) => a.current_balance != null)) return null
     return rows.reduce((s, a) => s + (Number(a.current_balance) || 0), 0)
   }, [acctMeta, acctFilter])
+
+  // Puente de conciliación: de dónde vino / a dónde fue el dinero en el periodo (solo banco real).
+  // Regla de Miguel: en el banco cada gasto se rastrea a un depósito; los transfers jamás inflan ingresos.
+  const bridge = useMemo(() => {
+    const isTransferCat = (c: any) => { const s = String(c || '').trim().toLowerCase(); return s === 'transfer' || s === 'transferencias internas' }
+    const isPendingCat = (c: any) => String(c || '').trim().toLowerCase() === 'por verificar'
+    let opening = 0, closing = 0, income = 0, expenses = 0, tIn = 0, tOut = 0, pNet = 0
+    const byAcct = new Map<string, Tx[]>()
+    for (const t of ftx) {
+      const k = t.bank_account || 'Cuenta principal'
+      if (!byAcct.has(k)) byAcct.set(k, [])
+      byAcct.get(k)!.push(t)
+    }
+    for (const arr of byAcct.values()) {
+      arr.sort((a, b) => a.date.localeCompare(b.date) || String((a as any).created_at || '').localeCompare(String((b as any).created_at || '')))
+      const first = arr[0], last = arr[arr.length - 1]
+      const db0 = Number(first.daily_balance), db1 = Number(last.daily_balance)
+      if (Number.isFinite(db0)) opening += db0 - (Number(first.credit) || 0) + (Number(first.debit) || 0)
+      if (Number.isFinite(db1)) closing += db1
+      for (const t of arr) {
+        const d = Number(t.debit) || 0, c = Number(t.credit) || 0
+        if (linkedIds.has(String(t.id)) || isTransferCat(t.category)) { tOut += d; tIn += c; continue }
+        if (isPendingCat(t.category)) { pNet += c - d; continue }
+        expenses += d; income += c
+      }
+    }
+    const residual = closing - (opening + income - expenses + tIn - tOut + pNet)
+    return { opening, income, expenses, tIn, tOut, pNet, closing, residual, nAccts: byAcct.size }
+  }, [ftx, linkedIds])
 
   async function saveEdit(id: string, field: string, value: any) {
     setEditing(null)
@@ -812,6 +854,36 @@ export default function EstadoBancario() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Conciliación: de dónde vino / a dónde fue el dinero */}
+        <div className="mb-3 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="text-[17px] font-bold text-[#10243f]">Conciliación</h2>
+            <p className="mt-0.5 text-[12px] text-slate-500">
+              {new Date(month + '-02').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              {' · '}{acctFilter === 'all' ? `All accounts (${bridge.nAccts})` : acctLabel(acctFilter)}
+              {' — cada gasto rastreado a su depósito'}
+            </p>
+          </div>
+          <div className="px-4 py-1.5">
+            <BridgeRow label="Balance inicial" value={bridge.opening} />
+            <BridgeRow label="+ Ingresos reales" value={bridge.income} valueClass="text-[#065f46]" />
+            <BridgeRow label="+ Transferencias recibidas" value={bridge.tIn} tag="transfer" />
+            <BridgeRow label="− Gastos reales" value={bridge.expenses} valueClass="text-[#be123c]" />
+            <BridgeRow label="− Transferencias enviadas" value={bridge.tOut} tag="transfer" />
+            {Math.abs(bridge.pNet) >= 0.005 && (
+              <BridgeRow label="± Por verificar (neto)" value={bridge.pNet} valueClass="text-[#b45309]" />
+            )}
+            <div className="flex items-center justify-between gap-3 border-t-2 border-[#10243f]/10 py-2.5">
+              <span className="text-[13px] font-bold text-[#10243f]">= Balance final</span>
+              <span className="flex-none font-mono text-[15px] font-bold text-[#10243f]">{money(bridge.closing)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 py-2">
+              <span className="text-[12px] font-semibold text-slate-500">Diferencia por conciliar</span>
+              <span className={`flex-none font-mono text-[13px] font-bold ${Math.abs(bridge.residual) < 0.01 ? 'text-[#16a34a]' : 'text-[#b45309]'}`}>{money(bridge.residual)}</span>
+            </div>
           </div>
         </div>
 

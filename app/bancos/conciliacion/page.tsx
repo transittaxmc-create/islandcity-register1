@@ -217,6 +217,9 @@ export default function EstadoBancario() {
     let dReal = 0, cReal = 0, gProy = 0, iProy = 0
     for (const t of ftx) {
       if (linkedIds.has(String(t.id))) continue
+      // Transferencias internas y pendientes de verificación no son ingreso ni gasto
+      const cat = String(t.category || '').trim().toLowerCase()
+      if (cat === 'transfer' || cat === 'transferencias internas' || cat === 'por verificar') continue
       dReal += Number(t.debit) || 0; cReal += Number(t.credit) || 0
     }
     for (const p of fproj) { gProy += Number(p.debit) || 0; iProy += Number(p.credit) || 0 }

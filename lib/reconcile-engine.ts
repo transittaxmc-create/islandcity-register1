@@ -272,3 +272,208 @@ export function summarize(
   }
   return { monthly, matches }
 }
+
+
+// ---- Comparative Ledger (final blueprint) ----
+// Every row answers: "Did I spend/earn what I planned, and how does this affect my savings?"
+// Processing order per real tx: (A) noise filter -> (B) match vs projected -> (C) variable buckets.
+
+export type LedgerStatus =
+  | 'MATCHED'
+  | 'SUGGESTED'
+  | 'UNPLANNED'
+  | 'TRANSFER'
+  | 'BONUS'
+  | 'PLANNED_UNSPENT'
+
+export type LedgerRow = {
+  id: string
+  date: string
+  entity: string
+  fullDetail: string
+  category: string
+  account: string
+  actual: number // signed: +income, -expense
+  projected: number // signed: +income, -expense (planned)
+  variance: number
+  status: LedgerStatus
+  classification: Classification
+  ruleId: string | null
+  ruleFrequency: string | null
+  txId: string | null // real tx id (null for planned-unspent rows)
+  isRecurringRule: boolean
+}
+
+export type BucketSummary = {
+  category: string
+  actual: number // total spent this month (positive number)
+  budget: number // monthly budget from matching rules
+  remaining: number // budget - actual
+  over: boolean
+}
+
+// Categories treated as monthly "buckets" instead of 1-to-1 matching.
+export const VARIABLE_CATEGORIES = new Set([
+  'Gasolina',
+  'Peajes E-ZPass',
+  'Mantenimiento',
+  'Llantas',
+  'Comida',
+])
+
+// Rules carry no category column: map rule concept -> category by keyword.
+export function ruleCategory(concept: string): string {
+  const c = norm(concept)
+  if (/gas|gasolina|fuel|shell|exxon|sunoco/.test(c)) return 'Gasolina'
+  if (/ez[\s-]?pass|peaje|toll|mta|triboro/.test(c)) return 'Peajes E-ZPass'
+  if (/manten|mantenimiento|repar|taller|mecanico|frenos|aceite/.test(c)) return 'Mantenimiento'
+  if (/llanta|tire|neumatico|goma/.test(c)) return 'Llantas'
+  if (/comida|food|restaur|eats|doordash|grubhub|pizza|burger|taco|sushi/.test(c)) return 'Comida'
+  if (/seguro|insurance|geico|progressive|allstate/.test(c)) return 'Seguro comercial'
+  if (/pago|payment|toyota|honda|nissan|ford/.test(c)) return 'Pago del vehículo'
+  return ''
+}
+
+export function buildLedger(args: {
+  txs: (RealTx & { category?: string })[]
+  rules: ProjRule[]
+  linked: Set<string>
+  monthStart: string
+  monthEnd: string
+}): { rows: LedgerRow[]; buckets: BucketSummary[]; totals: { actualNet: number; projectedNet: number; gap: number } } {
+  const { txs, rules, linked, monthStart, monthEnd } = args
+  const rulesById = new Map(rules.map((r) => [r.id, r]))
+  const occurrences = expandOccurrences(rules, monthStart, monthEnd)
+
+  const occByRule = new Map<string, ProjOccurrence[]>()
+  for (const o of occurrences) {
+    if (!occByRule.has(o.id)) occByRule.set(o.id, [])
+    occByRule.get(o.id)!.push(o)
+  }
+
+  const auto = detectTransfers(txs, linked)
+  const autoIds = new Set<string>()
+  for (const p of auto) {
+    autoIds.add(p.fromId)
+    autoIds.add(p.toId)
+  }
+
+  const rows: LedgerRow[] = []
+  const usedOcc = new Set<string>() // "ruleId::date" consumed by 1-to-1 matches
+  const varActualByCat = new Map<string, number>()
+
+  for (const t of txs) {
+    const tid = String((t as any).id)
+    const c = Number(t.credit) || 0
+    const db = Number(t.debit) || 0
+    const actual = c > 0 ? c : -db // signed
+    const isIncome = c > 0
+    const cat = (t as any).category || 'Otro'
+
+    // Step A: noise filter
+    const isTransfer = linked.has(tid) || autoIds.has(tid)
+    if (isTransfer) {
+      rows.push({
+        id: tid, date: t.date, entity: t.detail, fullDetail: t.detail, category: cat,
+        account: t.bank_account, actual, projected: actual, variance: 0,
+        status: 'TRANSFER', classification: 'INTERNAL_TRANSFER',
+        ruleId: null, ruleFrequency: null, txId: tid, isRecurringRule: false,
+      })
+      continue
+    }
+
+    // Step C first: variable-category expenses aggregate to the bucket.
+    if (!isIncome && VARIABLE_CATEGORIES.has(cat)) {
+      varActualByCat.set(cat, (varActualByCat.get(cat) || 0) + db)
+      const match = matchOne(t, occurrences)
+      const ruleFrequency = match.ruleId ? rulesById.get(match.ruleId)?.frequency ?? null : null
+      const cls = classifyOne({ t, isTransfer: false, match, ruleFrequency })
+      rows.push({
+        id: tid, date: t.date, entity: t.detail, fullDetail: t.detail, category: cat,
+        account: t.bank_account, actual, projected: 0, variance: 0,
+        status: match.status === 'MATCHED' ? 'MATCHED' : match.status === 'SUGGESTED_MATCH' ? 'SUGGESTED' : 'UNPLANNED',
+        classification: cls, ruleId: match.ruleId, ruleFrequency,
+        txId: tid, isRecurringRule: false,
+      })
+      continue
+    }
+
+    // Step B: 1-to-1 match vs projected occurrences
+    const match = matchOne(t, occurrences)
+    const rule = match.ruleId ? rulesById.get(match.ruleId) ?? null : null
+    const cls = classifyOne({ t, isTransfer: false, match, ruleFrequency: rule?.frequency ?? null })
+    let projected = 0
+    let status: LedgerStatus
+    if (match.status === 'MATCHED' || match.status === 'SUGGESTED_MATCH') {
+      const amt = Number(rule?.amount) || 0
+      projected = rule?.type === 'ingreso' ? amt : -amt
+      if (match.occurrenceDate && match.ruleId) usedOcc.add(`${match.ruleId}::${match.occurrenceDate}`)
+      status = match.status === 'MATCHED' ? 'MATCHED' : 'SUGGESTED'
+    } else {
+      projected = 0
+      status = isIncome ? 'BONUS' : 'UNPLANNED'
+    }
+    const variance = isIncome ? actual - projected : projected - actual
+    rows.push({
+      id: tid, date: t.date, entity: t.detail, fullDetail: t.detail, category: cat,
+      account: t.bank_account, actual, projected, variance,
+      status, classification: cls,
+      ruleId: match.ruleId, ruleFrequency: rule?.frequency ?? null,
+      txId: tid, isRecurringRule: false,
+    })
+  }
+
+  // Planned-but-unspent: occurrences with no matched real tx.
+  for (const o of occurrences) {
+    const key = `${o.id}::${o.occurrence_date}`
+    if (usedOcc.has(key)) continue
+    const amt = Number(o.amount) || 0
+    const isInc = o.type === 'ingreso'
+    const signed = isInc ? amt : -amt
+    const rcat = ruleCategory(o.concept)
+    if (!isInc && rcat && VARIABLE_CATEGORIES.has(rcat)) continue // covered by bucket
+    rows.push({
+      id: `plan::${key}`, date: o.occurrence_date, entity: o.concept, fullDetail: o.concept,
+      category: rcat || 'Proyección', account: 'Cuenta principal',
+      actual: 0, projected: signed, variance: isInc ? -signed : signed,
+      status: 'PLANNED_UNSPENT', classification: isInc ? 'TRUE_INCOME' : 'FIXED_EXPENSE',
+      ruleId: o.id, ruleFrequency: o.frequency, txId: null, isRecurringRule: true,
+    })
+  }
+
+  // Step C: bucket summaries + per-row projected/variance for bucket rows.
+  const buckets: BucketSummary[] = []
+  const monthlyFactor = (freq: string) =>
+    freq === 'Semanal' ? 4.33 : freq === 'Diaria' ? 30 : freq === 'Anual' ? 1 / 12 : 1
+  for (const cat of VARIABLE_CATEGORIES) {
+    let budget = 0
+    for (const r of rules) {
+      if (r.type !== 'gasto') continue
+      if (ruleCategory(r.concept) !== cat) continue
+      budget += (Number(r.amount) || 0) * monthlyFactor(r.frequency)
+    }
+    const actualSpent = varActualByCat.get(cat) || 0
+    if (!budget && !actualSpent) continue
+    buckets.push({ category: cat, actual: actualSpent, budget, remaining: budget - actualSpent, over: actualSpent > budget })
+  }
+  const bucketByCat = new Map(buckets.map((b) => [b.category, b]))
+  for (const r of rows) {
+    if (r.classification === 'INTERNAL_TRANSFER') continue
+    const b = bucketByCat.get(r.category)
+    if (!b || r.txId == null) continue
+    r.projected = -b.budget
+    r.variance = b.remaining
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+
+  let actualNet = 0
+  let projectedNet = 0
+  for (const r of rows) {
+    if (r.classification === 'INTERNAL_TRANSFER') continue
+    actualNet += r.actual
+    projectedNet += r.projected
+  }
+  return { rows, buckets, totals: { actualNet, projectedNet, gap: projectedNet - actualNet } }
+}
+

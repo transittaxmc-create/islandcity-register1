@@ -19,9 +19,15 @@ function monthRange(ym: string) {
 
 function occurrences(rule: any, start: string, end: string) {
   // Genera las ocurrencias del mes para una regla recurrente.
+  // 'Hasta cuándo': si la regla trae end_date, no genera más allá de esa fecha.
   const out: any[] = []
   const s = new Date(start + 'T12:00:00')
   const e = new Date(end + 'T12:00:00')
+  let effEnd = e
+  if (rule.end_date && typeof rule.end_date === 'string') {
+    const rd = new Date(rule.end_date + 'T12:00:00')
+    if (!isNaN(rd.getTime()) && rd < effEnd) effEnd = rd
+  }
   const push = (d: Date) => {
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     if (iso >= start && iso <= end) out.push({ ...rule, occurrence_date: iso })
@@ -40,7 +46,7 @@ function occurrences(rule: any, start: string, end: string) {
     cursor = new Date(s.getFullYear(), s.getMonth(), day, 12)
   }
   let guard = 0
-  while (cursor <= e && guard++ < 400) {
+  while (cursor <= effEnd && guard++ < 400) {
     push(cursor)
     if (rule.frequency === 'Diaria') cursor.setDate(cursor.getDate() + 1)
     else if (rule.frequency === 'Semanal') cursor.setDate(cursor.getDate() + 7)
@@ -104,9 +110,19 @@ export async function POST(req: NextRequest) {
       // Se guarda como REGLA recurrente; las filas del mes se generan en el GET.
       const type = Number(credit) > 0 ? 'ingreso' : 'gasto'
       const amount = Math.abs(Number(credit) > 0 ? credit : debit)
-      const { data, error } = await sb.from(RP).insert({
-        concept: detail, frequency, pay_day: date, amount, type,
-      }).select().single()
+      const end_date = (b as any).end_date && String((b as any).end_date).match(/^\d{4}-\d{2}-\d{2}$/)
+        ? String((b as any).end_date)
+        : null
+      // end_date puede no existir aún como columna: se intenta con ella y se reintenta sin ella.
+      const payload: any = { concept: detail, frequency, pay_day: date, amount, type }
+      if (end_date) payload.end_date = end_date
+      let data: any = null
+      let error: any = null
+      ;({ data, error } = await sb.from(RP).insert(payload).select().single())
+      if (error && end_date && /end_date/i.test(error.message || '')) {
+        delete payload.end_date
+        ;({ data, error } = await sb.from(RP).insert(payload).select().single())
+      }
       if (error) throw error
       return NextResponse.json({ rule: data })
     }
@@ -134,7 +150,7 @@ export async function PATCH(req: NextRequest) {
     const sb = supabaseServer()
     const b = await req.json()
     const { id, field, value } = b as { id: string; field: string; value: any }
-    const allowed = ['date', 'bank_account', 'detail', 'category', 'frequency', 'debit', 'credit', 'pb_class', 'daily_balance']
+    const allowed = ['date', 'bank_account', 'detail', 'category', 'frequency', 'debit', 'credit', 'pb_class', 'daily_balance', 'end_date']
     if (!allowed.includes(field)) return NextResponse.json({ error: 'Campo no permitido' }, { status: 400 })
 
     if (String(id).includes('::')) {
@@ -144,6 +160,7 @@ export async function PATCH(req: NextRequest) {
       if (field === 'detail') patch.concept = value
       else if (field === 'date') patch.pay_day = value
       else if (field === 'frequency') patch.frequency = value
+      else if (field === 'end_date') patch.end_date = value || null
       else if (field === 'debit' || field === 'credit') {
         patch.amount = Math.abs(Number(value))
         patch.type = field === 'credit' ? 'ingreso' : 'gasto'

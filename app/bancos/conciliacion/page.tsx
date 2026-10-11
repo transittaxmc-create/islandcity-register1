@@ -114,6 +114,7 @@ export default function EstadoBancario() {
   const [listening, setListening] = useState(false)
   const recogRef = useRef<any>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatListRef = useRef<HTMLDivElement>(null)
   const newRowRef = useRef<HTMLTableRowElement>(null)
 
   // Cuando se abre el formulario + Add, llevarlo a la vista (está arriba de la tabla).
@@ -370,7 +371,7 @@ export default function EstadoBancario() {
     setChatMsgs(msgs)
     setChatInput('')
     setChatBusy(true)
-    const scrollDown = () => setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    const scrollDown = () => setTimeout(() => { const el = chatListRef.current; if (el) el.scrollTop = el.scrollHeight }, 50)
     try {
       if (/\bpdf\b|reporte|statement/i.test(text)) {
         const pdf = await import('@/lib/statement-pdf')
@@ -439,7 +440,7 @@ export default function EstadoBancario() {
       setChatMsgs([...chatMsgs, { role: 'ai', text: 'No pude aplicar: ' + e.message }])
     }
     setChatBusy(false)
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    setTimeout(() => { const el = chatListRef.current; if (el) el.scrollTop = el.scrollHeight }, 50)
   }
 
   /* ---------- celdas editables inline ---------- */
@@ -1108,7 +1109,7 @@ export default function EstadoBancario() {
           </div>
         </div>
         {chatOpen && (
-          <aside className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-3xl border-t-2 border-slate-200 bg-white shadow-2xl lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-[370px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+          <aside className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] max-h-[70dvh] flex-col overflow-x-clip overscroll-contain rounded-t-3xl border-t-2 border-slate-200 bg-white shadow-2xl lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:max-h-none lg:w-[370px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
                 <h3 className="font-bold">Financial assistant</h3>
@@ -1116,7 +1117,7 @@ export default function EstadoBancario() {
               </div>
               <button onClick={() => setChatOpen(false)} className="rounded-lg bg-slate-100 px-2 py-1 text-sm font-bold text-slate-500" aria-label="Close chat">✕</button>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-3">
+            <div ref={chatListRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-clip overscroll-contain px-4 py-3">
               {chatMsgs.length === 0 ? (
                 <div>
                   <p className="mb-2 text-sm text-slate-500">How can I help? Try:</p>
@@ -1129,7 +1130,7 @@ export default function EstadoBancario() {
               ) : (
                 chatMsgs.map((m, i) => (
                   <div key={i} className={`mb-3 ${m.role === 'user' ? 'text-right' : ''}`}>
-                    <div className={`inline-block max-w-[90%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line text-left ${m.role === 'user' ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-700'}`}>
+                    <div className={`inline-block max-w-[90%] break-words rounded-2xl px-3 py-2 text-sm whitespace-pre-line [overflow-wrap:anywhere] text-left ${m.role === 'user' ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-700'}`}>
                       {m.text}
                       {m.file && (
                         <div className="mt-2">
@@ -1170,14 +1171,14 @@ export default function EstadoBancario() {
               {chatBusy && <p className="text-xs text-slate-400">Thinking…</p>}
               <div ref={chatEndRef} />
             </div>
-            <div className="border-t border-slate-100 p-3">
+            <div className="shrink-0 border-t border-slate-100 bg-white p-3">
               <div className="flex gap-2">
                 <input
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') askAI(chatInput) }}
                   placeholder="Finance question… or 'PDF de enero a marzo'"
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-[16px]"
                 />
                 {typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) && (
                   <button

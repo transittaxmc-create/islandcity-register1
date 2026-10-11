@@ -117,19 +117,44 @@ ${txLines || '(sin movimientos)'}`
             required: ['id'],
           },
         },
+        {
+          name: 'agregar_transaccion',
+          description: 'Agrega un movimiento nuevo al libro. Solo cuando Miguel lo pide explícitamente.',
+          parameters: {
+            type: 'OBJECT',
+            properties: {
+              fecha: { type: 'STRING', description: 'Fecha YYYY-MM-DD' },
+              cuenta: { type: 'STRING', description: 'Cuenta bancaria (nombre como aparece en la app)' },
+              detalle: { type: 'STRING', description: 'Descripción del movimiento' },
+              categoria: { type: 'STRING', description: 'Categoría' },
+              tipo: { type: 'STRING', description: '"ingreso" o "gasto"' },
+              monto: { type: 'NUMBER', description: 'Monto' },
+            },
+            required: ['fecha', 'detalle', 'tipo', 'monto'],
+          },
+        },
       ],
     }]
     const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash', tools } as any)
-    const prompt = `Eres el asistente financiero de Island City Transit, un servicio de carro privado en Long Island, NY. Respondes SIEMPRE en español.
+    const prompt = `Eres el asistente financiero personal de Miguel, dueño de Island City Transit (servicio de carro privado en Long Island, NY). Esta conversación ocurre DENTRO de su aplicación bancaria. Respondes SIEMPRE en español.
 
-REGLAS DE FORMATO (obligatorias, sin excepción):
-- Primera línea: la respuesta directa en UNA frase corta.
-- Después: máximo 4 viñetas cortas con el detalle clave.
+ACCESO TOTAL A LOS DATOS:
+- Tienes acceso completo de lectura a todo lo de la app: balances, transacciones, cuentas, proyecciones, recibos, reglas programadas.
+- Responde CUALQUIER pregunta sobre sus datos. PROHIBIDO negarte a responder o decir que no tienes acceso.
+- Si los datos no alcanzan para responder, dilo claro en una línea y pide el dato que falta.
+- TIENES el detalle individual de cada movimiento abajo: úsalo para listar, filtrar por nombre/categoría y sumar al centavo.
+
+ACCIONES (solo con su orden):
+- PUEDES PROPONER: agregar transacciones, cambiar categoría/monto/fecha/detalle, eliminar movimientos, y hacer cálculos.
+- REGLA DE ORO: solo actúas cuando Miguel lo ordena explícitamente, acción por acción. NUNCA cambias, agregas ni borras nada por iniciativa propia.
+- Cada propuesta se le presenta para que la APRUEBE antes de ejecutarse: el sistema le pedirá que confirme.
+
+CONFIDENCIALIDAD:
+- Sus datos no salen de esta app. Jamás los compartes, publicas ni envías a nadie fuera de aquí. Todo tu trabajo ocurre dentro de la aplicación.
+
+TONO:
+- Natural y directo, como un asistente personal: responde completo lo que pregunte, sin rodeos y sin muros de texto innecesarios.
 - Números siempre con $ y 2 decimales.
-- PROHIBIDO escribir párrafos largos o más de 5 líneas en total.
-- Si los datos no alcanzan para responder, dilo en una sola línea y sugiere qué dato falta.
-- TIENES el detalle individual de cada movimiento arriba: úsalo para listar, filtrar por nombre/categoría y sumar al centavo.
-- PUEDES PROPONER CAMBIOS: si el dueño pide cambiar una categoría o renombrar un detalle, usa las funciones cambiar_categoria o renombrar_detalle con los id correctos. NUNCA ejecutes sin su aprobación: el sistema le pedirá que confirme.
 
 DATOS REALES DEL NEGOCIO:
 ${context}`
@@ -148,6 +173,7 @@ ${context}`
         else if (name === 'cambiar_monto') desc = `Cambiar ${args.campo} a $${args.monto}`
         else if (name === 'cambiar_fecha') desc = `Cambiar fecha a ${args.fecha}`
         else if (name === 'eliminar_movimiento') desc = `⚠️ Eliminar este movimiento`
+        else if (name === 'agregar_transaccion') desc = `Agregar ${args.tipo} de $${Number(args.monto).toFixed(2)} — "${args.detalle}" (${args.fecha}${args.cuenta ? ', ' + args.cuenta : ''})`
         return { action: name, args, desc }
       })
       return NextResponse.json({ pending: proposals })

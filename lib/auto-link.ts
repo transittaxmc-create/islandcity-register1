@@ -18,10 +18,18 @@ export async function autoLinkTransfers(opts?: { dryRun?: boolean }) {
   const linked = new Set<string>()
   for (const l of links || []) { linked.add(String(l.from_tx)); linked.add(String(l.to_tx)) }
 
-  const { data: txs, error } = await sb.from('bank_transactions')
-    .select('id,date,bank_account,detail,debit,credit,category')
-    .limit(20000)
-  if (error) throw new Error(error.message)
+  // Paginado: PostgREST limita a 1000 filas por defecto
+  const txs: any[] = []
+  const PAGE = 1000
+  for (let page = 0; ; page++) {
+    const { data, error } = await sb.from('bank_transactions')
+      .select('id,date,bank_account,detail,debit,credit,category')
+      .order('id', { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1)
+    if (error) throw new Error(error.message)
+    txs.push(...(data || []))
+    if (!data || data.length < PAGE) break
+  }
 
   // Solo movimientos ya clasificados como transferencia interna y sin vincular.
   // 'Por verificar' se excluye: remitente ambiguo, Miguel lo confirma primero.

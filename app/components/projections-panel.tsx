@@ -321,9 +321,9 @@ export default function ProjectionsPanel() {
         <div className={`${card} xl:col-span-2`}>
           <h3 className={h3}>Gastos por categoría</h3>
           <div className="mt-1 flex items-center gap-4">
-            <div className="relative size-[104px] shrink-0">
-            <svg viewBox="0 0 180 180" className="size-full -rotate-0">
-              <circle cx="90" cy="90" r={R} fill="none" stroke="#eef2f7" strokeWidth="26" />
+            <div className="relative size-[120px] shrink-0">
+            <svg viewBox="0 0 180 180" className="size-full">
+              <circle cx="90" cy="90" r={R} fill="none" stroke="#eef2f7" strokeWidth="22" />
               {dSegs.map((s) => (
                 <circle
                   key={s.k}
@@ -332,16 +332,16 @@ export default function ProjectionsPanel() {
                   r={R}
                   fill="none"
                   stroke={s.color}
-                  strokeWidth="26"
+                  strokeWidth="22"
                   strokeDasharray={s.dash}
                   transform={`rotate(${s.rot - 90} 90 90)`}
                 />
               ))}
             </svg>
-            <div className="absolute inset-0 grid place-items-center text-center">
-              <div>
-                <div className="text-sm font-extrabold tabular-nums text-slate-800">{money(donutTotal)}</div>
-                <div className="text-[9px] text-slate-400">Total gastos</div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="flex max-w-[86px] flex-col items-center justify-center px-1 text-center leading-tight">
+                <div className="w-full truncate text-[13px] font-extrabold tabular-nums tracking-tight text-slate-800">{money(donutTotal)}</div>
+                <div className="text-[8px] font-medium text-slate-400">Total gastos</div>
               </div>
             </div>
             </div>

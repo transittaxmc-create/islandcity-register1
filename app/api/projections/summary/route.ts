@@ -26,9 +26,29 @@ export async function GET() {
     const first = monthRange(YMS[0])
     const lastM = monthRange(YMS[YMS.length - 1])
 
-    const [{ data: accs }, { data: txs }, { data: rules }, { data: links }] = await Promise.all([
+    // Paginado: PostgREST recorta a ~1000 filas por defecto; ene–oct 2026 supera las 3,300.
+    const txs: any[] = []
+    {
+      const PAGE = 1000
+      let from = 0
+      for (;;) {
+        const { data, error } = await sb.from('bank_transactions')
+          .select('*')
+          .eq('entry_type', 'real')
+          .gte('date', first.start)
+          .lte('date', lastM.end)
+          .order('date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1)
+        if (error) throw error
+        txs.push(...(data || []))
+        if (!data || data.length < PAGE) break
+        from += PAGE
+      }
+    }
+
+    const [{ data: accs }, { data: rules }, { data: links }] = await Promise.all([
       sb.from('bank_accounts').select('name,current_balance,institution,display_order').order('display_order').order('name'),
-      sb.from('bank_transactions').select('*').eq('entry_type', 'real').gte('date', first.start).lte('date', lastM.end).limit(20000),
       sb.from('recurring_projections').select('*'),
       sb.from('transfer_links').select('from_tx,to_tx'),
     ])

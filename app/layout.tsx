@@ -3,8 +3,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Dual Register | Control financiero',
-  description: 'Visualiza tu flujo financiero real frente a tus proyecciones.',
+  title: 'Dual Register | Tu dinero, bajo control',
+  description: 'Conciliación financiera inteligente para entender, anticipar y decidir mejor.',
   generator: 'v0.app',
   icons: {
     icon: [

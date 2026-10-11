@@ -20,6 +20,7 @@ export type RealTx = {
   detail: string
   debit: number | null
   credit: number | null
+  category?: string
 }
 
 export type ProjRule = {
@@ -29,7 +30,13 @@ export type ProjRule = {
   type: 'ingreso' | 'gasto'
   frequency: string
   pay_day: string
+  end_date?: string // 'YYYY-MM-DD' — hasta cuándo corre la regla (opcional)
 }
+
+// Categorías que nunca cuentan como ingreso/gasto real (igual que el Estado Bancario).
+export const TRANSFER_CATS = new Set(['transfer', 'transferencias internas', 'por verificar'])
+export const isTransferCat = (cat: string | undefined | null) =>
+  TRANSFER_CATS.has(String(cat || '').trim().toLowerCase())
 
 export type ProjOccurrence = ProjRule & { occurrence_date: string }
 
@@ -161,11 +168,19 @@ export function expandOccurrences(
   const out: ProjOccurrence[] = []
   const s = new Date(start + 'T12:00:00')
   const e = new Date(end + 'T12:00:00')
+  // 'Hasta cuándo': la regla deja de generar ocurrencias en su end_date.
+  const ruleEnd = (r: ProjRule): Date | null => {
+    if (!r.end_date || typeof r.end_date !== 'string') return null
+    const d = new Date(r.end_date + 'T12:00:00')
+    return isNaN(d.getTime()) ? null : d
+  }
   const push = (r: ProjRule, d: Date) => {
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     if (iso >= start && iso <= end) out.push({ ...r, occurrence_date: iso })
   }
   for (const r of rules) {
+    const rend = ruleEnd(r)
+    const effEnd = rend && rend < e ? rend : e
     if (r.frequency === 'Un solo pago') {
       const d = new Date(String(r.pay_day) + 'T12:00:00')
       if (!isNaN(d.getTime())) push(r, d)
@@ -179,7 +194,7 @@ export function expandOccurrences(
       cursor = new Date(s.getFullYear(), s.getMonth(), day, 12)
     }
     let guard = 0
-    while (cursor <= e && guard++ < 400) {
+    while (cursor <= effEnd && guard++ < 400) {
       push(r, cursor)
       if (r.frequency === 'Diaria') cursor.setDate(cursor.getDate() + 1)
       else if (r.frequency === 'Semanal') cursor.setDate(cursor.getDate() + 7)
@@ -234,7 +249,9 @@ export function summarize(
     let transfers = 0
     for (const t of m.txs) {
       const tid = String((t as any).id)
-      const isTransfer = linked.has(tid) || autoIds.has(tid)
+      // Transferencia = linkeada, auto-detectada, O categorizada como tal
+      // (misma regla que el Estado Bancario: nunca inflan ingresos/gastos).
+      const isTransfer = linked.has(tid) || autoIds.has(tid) || isTransferCat(t.category)
       const match = matchOne(t, m.occurrences)
       const cls = classifyOne({
         t,
@@ -370,8 +387,8 @@ export function buildLedger(args: {
     const isIncome = c > 0
     const cat = (t as any).category || 'Otro'
 
-    // Step A: noise filter
-    const isTransfer = linked.has(tid) || autoIds.has(tid)
+    // Step A: noise filter — linkeada, auto-detectada, o categorizada como transferencia.
+    const isTransfer = linked.has(tid) || autoIds.has(tid) || isTransferCat(t.category)
     if (isTransfer) {
       rows.push({
         id: tid, date: t.date, entity: t.detail, fullDetail: t.detail, category: cat,

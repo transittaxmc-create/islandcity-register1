@@ -1,9 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 type Acct = { name: string; current_balance: number | null; institution: string | null; display_order: number }
-type MonthData = { ym: string; txs: any[]; proj: any[]; linked: Set<string> }
+type MonthData = { ym: string; inc: number; exp: number; byCat: Map<string, number> }
+type SummaryMonth = { ym: string; inc: number; exp: number; byCat: [string, number][] }
+type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; debit: number; credit: number }
+
+const SUMMARY_CACHE = 'proj-summary-v1'
+const PROJ_ROW_H = 52
+const PROJ_VIEW_H = 220
 
 const money = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
@@ -91,66 +97,78 @@ function Kpi({
   accent?: string
 }) {
   return (
-    <div className="group relative flex items-center gap-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+    <div className="group relative flex items-center gap-3 overflow-hidden rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <span
-        className="absolute inset-x-0 top-0 h-1 rounded-t-2xl"
+        className="absolute inset-x-0 top-0 h-1 rounded-t-xl"
         style={{ background: `linear-gradient(90deg, ${accent}, ${accent}44)` }}
       />
       <div
-        className="grid size-12 shrink-0 place-items-center rounded-xl"
+        className="grid size-10 shrink-0 place-items-center rounded-lg"
         style={{ background: `${accent}14`, color: accent }}
       >
         {icon}
       </div>
       <div className="min-w-0">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
-        <p className={`mt-1 text-[27px] font-extrabold leading-tight tabular-nums ${valueColor}`}>{value}</p>
-        <p className="mt-1 inline-flex max-w-full truncate rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">{sub}</p>
+        <p className={`mt-0.5 text-[22px] font-extrabold leading-tight tabular-nums ${valueColor}`}>{value}</p>
+        <p className="mt-0.5 inline-flex max-w-full truncate rounded-full bg-slate-100 px-2 py-px text-[10px] font-medium text-slate-500">{sub}</p>
       </div>
     </div>
   )
 }
 
-const card = 'rounded-xl border border-slate-200 bg-white p-5 shadow-sm'
-const h3 = 'text-[15px] font-bold text-slate-800'
+const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
+const h3 = 'text-[14px] font-bold text-slate-800'
 
 export default function ProjectionsPanel() {
   const [accounts, setAccounts] = useState<Acct[]>([])
-  const [data, setData] = useState<MonthData[]>([])
+  const [months, setMonths] = useState<SummaryMonth[]>([])
+  const [projItems, setProjItems] = useState<ProjItem[]>([])
+  const [projTotals, setProjTotals] = useState({ income: 0, expenses: 0 })
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [scrollTop, setScrollTop] = useState(0)
+  const listRef = useRef<HTMLDivElement>(null)
+  const rafRef = useRef(0)
+
+  const applySummary = (sj: any) => {
+    const accs: Acct[] = ((sj.accounts || []) as any[])
+      .map((x) => ({
+        name: x.name,
+        current_balance: x.current_balance ?? null,
+        institution: x.institution || null,
+        display_order: x.display_order ?? 100,
+      }))
+      .filter((x) => x.name)
+      .sort((a, b) => a.display_order - b.display_order)
+    setAccounts(accs)
+    setMonths((sj.monthly || []) as SummaryMonth[])
+    const items = ((sj.projected || []) as ProjItem[]).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    setProjItems(items)
+    setProjTotals(sj.projTotals || { income: 0, expenses: 0 })
+  }
 
   useEffect(() => {
     let alive = true
+    // Ticket C: paint cache instantly, then silent-refresh in background.
+    try {
+      const raw = sessionStorage.getItem(SUMMARY_CACHE)
+      if (raw) {
+        applySummary(JSON.parse(raw))
+        setLoading(false)
+      }
+    } catch {}
     ;(async () => {
       try {
-        const lj = await fetch('/api/reconcile/lists').then((r) => r.json()).catch(() => ({}))
-        const accs: Acct[] = ((lj.accounts || []) as any[])
-          .map((x) => ({
-            name: x.name,
-            current_balance: x.current_balance ?? null,
-            institution: x.institution || null,
-            display_order: x.display_order ?? 100,
-          }))
-          .filter((x) => x.name)
-          .sort((a, b) => a.display_order - b.display_order)
-        const yms = Array.from({ length: 10 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}`)
-        const rows: MonthData[] = await Promise.all(
-          yms.map(async (ym) => {
-            const [dj, tj] = await Promise.all([
-              fetch(`/api/reconcile/data?month=${ym}`).then((r) => r.json()).catch(() => ({})),
-              fetch(`/api/reconcile/transfers?links=1&month=${ym}`).then((r) => r.json()).catch(() => ({})),
-            ])
-            const linked = new Set<string>()
-            for (const l of tj.links || []) {
-              linked.add(String(l.from_tx))
-              linked.add(String(l.to_tx))
-            }
-            return { ym, txs: dj.transactions || [], proj: dj.projected || [], linked }
-          })
-        )
+        const sj = await fetch('/api/projections/summary').then((r) => r.json())
+        if (sj?.error) throw new Error(sj.error)
         if (!alive) return
-        setAccounts(accs)
-        setData(rows)
+        applySummary(sj)
+        try {
+          sessionStorage.setItem(SUMMARY_CACHE, JSON.stringify(sj))
+        } catch {}
+      } catch {
+        if (alive && months.length === 0) setLoadError(true)
       } finally {
         if (alive) setLoading(false)
       }
@@ -158,41 +176,44 @@ export default function ProjectionsPanel() {
     return () => {
       alive = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const onProjScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop
+    cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => setScrollTop(top))
+  }
+
+  useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
+
+  const projWin = useMemo(() => {
+    const n = projItems.length
+    if (!n) return { start: 0, end: 0 }
+    const start = Math.max(0, Math.floor(scrollTop / PROJ_ROW_H) - 3)
+    const end = Math.min(n, Math.ceil((scrollTop + PROJ_VIEW_H) / PROJ_ROW_H) + 3)
+    return { start, end }
+  }, [scrollTop, projItems.length])
 
   const bankTotal = useMemo(
     () => accounts.reduce((s, a) => s + (Number(a.current_balance) || 0), 0),
     [accounts]
   )
 
-  const proj = useMemo(
-    () => data.flatMap((d) => d.proj).sort((a, b) => String(a.date).localeCompare(String(b.date))),
-    [data]
-  )
-  const totPI = useMemo(() => proj.reduce((s, p) => s + Number(p.credit || 0), 0), [proj])
-  const totPE = useMemo(() => proj.reduce((s, p) => s + Number(p.debit || 0), 0), [proj])
+  // KPIs use server-aggregated projected totals (ticket A).
+  const totPI = projTotals.income
+  const totPE = projTotals.expenses
   const grandTotal = bankTotal + totPI - totPE
+  const projCount = projItems.length
 
-  const monthly = useMemo(
+  const monthly: MonthData[] = useMemo(
     () =>
-      data.map((d) => {
-        let inc = 0
-        let exp = 0
+      months.map((m) => {
         const byCat = new Map<string, number>()
-        for (const t of d.txs) {
-          if (d.linked.has(String(t.id))) continue
-          const c = Number(t.credit) || 0
-          const db = Number(t.debit) || 0
-          inc += c
-          exp += db
-          if (db > 0) {
-            const k = t.category || 'Otro'
-            byCat.set(k, (byCat.get(k) || 0) + db)
-          }
-        }
-        return { ym: d.ym, inc, exp, byCat }
+        for (const [k, v] of m.byCat || []) byCat.set(k, v)
+        return { ym: m.ym, inc: m.inc, exp: m.exp, byCat }
       }),
-    [data]
+    [months]
   )
 
   const catTotal = useMemo(() => {
@@ -226,32 +247,42 @@ export default function ProjectionsPanel() {
   if (loading) {
     return (
       <div>
-        <h2 className="text-[26px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
-        <p className="mt-1 text-sm text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
+        <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
+        <p className="mt-0.5 text-xs text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
         <p className="mt-6 text-sm text-slate-400">Cargando datos del 2026…</p>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div>
+        <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
+        <p className="mt-6 text-sm text-slate-500">No se pudieron cargar los datos. Revisa tu conexión e inténtalo de nuevo.</p>
+        <button onClick={() => window.location.reload()} className="mt-3 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Reintentar</button>
       </div>
     )
   }
 
   return (
     <div>
-      <h2 className="text-[26px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
-      <p className="mt-1 text-sm text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
+      <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
+      <p className="mt-0.5 text-xs text-slate-500">Balance bancario final + proyecciones de ingresos y gastos del 2026.</p>
 
       {/* KPIs */}
-      <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi icon={IBar} label="Ingresos proyectados" value={money(totPI)} sub={`${proj.filter((p) => Number(p.credit) > 0).length} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
-        <Kpi icon={ICart} label="Gastos proyectados" value={money(totPE)} sub={`${proj.filter((p) => Number(p.debit) > 0).length} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
+      <section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Kpi icon={IBar} label="Ingresos proyectados" value={money(totPI)} sub={`${projCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
+        <Kpi icon={ICart} label="Gastos proyectados" value={money(totPE)} sub={`${projCount} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
         <Kpi icon={IDb} label="Balance bancario" value={money(bankTotal)} sub={`${accounts.length} cuentas · saldo final`} valueColor="text-slate-800" accent="#3b82f6" />
         <Kpi icon={IPct} label="Balance total" value={money(grandTotal)} sub="Banco + ingresos − gastos" valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
       </section>
 
-      {/* Barras + tendencia */}
-      <section className="mt-5 grid gap-5 xl:grid-cols-5">
+      {/* Barras + dona */}
+      <section className="mt-3 grid gap-3 xl:grid-cols-5">
         <div className={`${card} xl:col-span-3`}>
           <h3 className={h3}>Ingresos vs gastos por mes</h3>
-          <div className="mt-3 flex gap-2">
-            <div className="flex h-[150px] w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-slate-400">
+          <div className="mt-2 flex gap-2">
+            <div className="flex h-[110px] w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-slate-400">
               {barTicks.map((t) => (
                 <span key={t}>{moneyK(t)}</span>
               ))}
@@ -263,7 +294,7 @@ export default function ProjectionsPanel() {
                     <div key={t} className="border-t border-slate-100" />
                   ))}
                 </div>
-                <div className="relative flex h-[150px] items-end gap-1 sm:gap-2">
+                <div className="relative flex h-[110px] items-end gap-1 sm:gap-2">
                   {monthly.map((m) => (
                     <div key={m.ym} className="flex h-full flex-1 items-end justify-center gap-1">
                       <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.inc / maxBar) * 100}%`, background: BLUE }} title={`Ingresos ${money(m.inc)}`} />
@@ -289,7 +320,8 @@ export default function ProjectionsPanel() {
 
         <div className={`${card} xl:col-span-2`}>
           <h3 className={h3}>Gastos por categoría</h3>
-          <div className="relative mx-auto mt-3 size-[148px]">
+          <div className="mt-1 flex items-center gap-4">
+            <div className="relative size-[104px] shrink-0">
             <svg viewBox="0 0 180 180" className="size-full -rotate-0">
               <circle cx="90" cy="90" r={R} fill="none" stroke="#eef2f7" strokeWidth="26" />
               {dSegs.map((s) => (
@@ -308,37 +340,38 @@ export default function ProjectionsPanel() {
             </svg>
             <div className="absolute inset-0 grid place-items-center text-center">
               <div>
-                <div className="text-lg font-extrabold tabular-nums text-slate-800">{money(donutTotal)}</div>
-                <div className="text-[10px] text-slate-400">Total gastos</div>
+                <div className="text-sm font-extrabold tabular-nums text-slate-800">{money(donutTotal)}</div>
+                <div className="text-[9px] text-slate-400">Total gastos</div>
               </div>
             </div>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
-            {dSegs.map((s) => (
-              <div key={s.k} className="flex min-w-0 items-center gap-1.5 text-xs">
-                <i className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
-                <span className="min-w-0 flex-1 truncate text-slate-500">{s.k}</span>
-                <span className="font-bold tabular-nums text-slate-700">{donutTotal > 0 ? Math.round((s.v / donutTotal) * 100) : 0}%</span>
-              </div>
-            ))}
-            {dSegs.length === 0 && <p className="col-span-2 py-2 text-center text-xs text-slate-400">Sin gastos registrados.</p>}
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              {dSegs.map((s) => (
+                <div key={s.k} className="flex min-w-0 items-center gap-1.5 text-xs">
+                  <i className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
+                  <span className="min-w-0 flex-1 truncate text-slate-500">{s.k}</span>
+                  <span className="font-bold tabular-nums text-slate-700">{donutTotal > 0 ? Math.round((s.v / donutTotal) * 100) : 0}%</span>
+                </div>
+              ))}
+              {dSegs.length === 0 && <p className="py-2 text-center text-xs text-slate-400">Sin gastos registrados.</p>}
+            </div>
           </div>
         </div>
       </section>
 
       {/* Full Register — horizontal full-width block, bounded scroll box */}
-      <section className="mt-5">
+      <section className="mt-3">
         <div className={`${card} flex flex-col`}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-baseline gap-x-3">
               <h3 className={h3}>Full Register 2026</h3>
-              <p className="mt-1 text-xs text-slate-500">Balances finales por cuenta + proyecciones. Desplázate dentro del recuadro para ver todas las transacciones.</p>
+              <p className="text-[11px] text-slate-400">Desplázate dentro del recuadro para ver todas las transacciones.</p>
             </div>
-            <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold tabular-nums text-slate-500">
-              {accounts.length} cuentas · {proj.length} proyecciones
+            <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
+              {accounts.length} cuentas · {projCount} proyecciones
             </span>
           </div>
-          <div className="scroll-slim mt-3 max-h-[420px] overflow-y-auto rounded-lg border border-slate-100 px-3">
+          <div className="scroll-slim mt-2 max-h-[240px] overflow-y-auto rounded-lg border border-slate-100 px-3">
             <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-slate-400">Cuentas · saldo final</p>
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-white">
@@ -352,59 +385,69 @@ export default function ProjectionsPanel() {
                   const b = a.current_balance
                   return (
                     <tr key={a.name} className="border-t border-slate-100 even:bg-slate-50/60">
-                      <td className="py-2.5 pr-2 font-medium text-slate-700">{shortBank(a)}</td>
-                      <td className={`py-2.5 text-right font-semibold tabular-nums ${(b ?? 0) < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                      <td className="py-1.5 pr-2 font-medium text-slate-700">{shortBank(a)}</td>
+                      <td className={`py-1.5 text-right font-semibold tabular-nums ${(b ?? 0) < 0 ? 'text-red-600' : 'text-slate-800'}`}>
                         {b == null ? '–' : money(b)}
                       </td>
                     </tr>
                   )
                 })}
                 <tr className="border-t-2 border-slate-200">
-                  <td className="py-2.5 pr-2 font-bold text-slate-800">Total banco</td>
-                  <td className={`py-2.5 text-right font-bold ${bankTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(bankTotal)}</td>
+                  <td className="py-1.5 pr-2 font-bold text-slate-800">Total banco</td>
+                  <td className={`py-1.5 text-right font-bold ${bankTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(bankTotal)}</td>
                 </tr>
               </tbody>
             </table>
 
-            <p className="mb-1 mt-6 text-[11px] font-bold uppercase tracking-widest text-slate-400">Proyecciones</p>
-            {proj.length === 0 ? (
+            <p className="mb-1 mt-4 text-[11px] font-bold uppercase tracking-widest text-slate-400">Proyecciones</p>
+            {projItems.length === 0 ? (
               <p className="py-4 text-center text-sm text-slate-400">Sin proyecciones registradas.</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-white">
-                  <tr className="text-left text-[11px] text-slate-400">
-                    <th className="border-b border-slate-200 py-2 pr-2 font-medium">Fecha</th>
-                    <th className="border-b border-slate-200 py-2 pr-2 font-medium">Detalle</th>
-                    <th className="border-b border-slate-200 py-2 pr-2 font-medium">Tipo</th>
-                    <th className="border-b border-slate-200 py-2 font-medium text-right">Monto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {proj.map((p) => {
-                    const isInc = Number(p.credit) > 0
-                    return (
-                      <tr key={p.id} className="border-t border-slate-100 even:bg-slate-50/60">
-                        <td className="whitespace-nowrap py-2.5 pr-2 tabular-nums text-slate-500">{fmtD(p.date)}</td>
-                        <td className="py-2.5 pr-2">
-                          <p className="font-medium text-slate-700">{p.detail}</p>
-                          <p className="text-[11px] text-slate-400">{p.frequency}</p>
-                        </td>
-                        <td className={`whitespace-nowrap py-2.5 pr-2 font-semibold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
-                          {isInc ? 'Ingreso' : 'Gasto'}
-                        </td>
-                        <td className={`whitespace-nowrap py-2.5 text-right font-semibold tabular-nums ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
-                          {isInc ? '+' : '−'}{money(Number(isInc ? p.credit : p.debit))}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+              <div>
+                <div className="grid grid-cols-[72px_1fr_84px_96px] gap-x-2 border-b border-slate-200 py-2 pr-2 text-left text-[11px] text-slate-400">
+                  <span className="font-medium">Fecha</span>
+                  <span className="font-medium">Detalle</span>
+                  <span className="font-medium">Tipo</span>
+                  <span className="text-right font-medium">Monto</span>
+                </div>
+                <div
+                  ref={listRef}
+                  onScroll={onProjScroll}
+                  className="scroll-slim overflow-y-auto"
+                  style={{ height: PROJ_VIEW_H }}
+                >
+                  <div style={{ height: projItems.length * PROJ_ROW_H, position: 'relative' }}>
+                    {projItems.slice(projWin.start, projWin.end).map((p, i) => {
+                      const idx = projWin.start + i
+                      const isInc = Number(p.credit) > 0
+                      return (
+                        <div
+                          key={p.id}
+                          className={`grid grid-cols-[72px_1fr_84px_96px] items-center gap-x-2 border-t border-slate-100 pr-2 text-sm ${idx % 2 === 1 ? 'bg-slate-50/60' : ''}`}
+                          style={{ position: 'absolute', top: idx * PROJ_ROW_H, left: 0, right: 0, height: PROJ_ROW_H }}
+                        >
+                          <span className="whitespace-nowrap tabular-nums text-slate-500">{fmtD(p.date)}</span>
+                          <span className="min-w-0">
+                            <p className="truncate font-medium text-slate-700">{p.detail}</p>
+                            <p className="text-[11px] text-slate-400">{p.frequency}</p>
+                          </span>
+                          <span className={`whitespace-nowrap font-semibold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
+                            {isInc ? 'Ingreso' : 'Gasto'}
+                          </span>
+                          <span className={`whitespace-nowrap text-right font-semibold tabular-nums ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
+                            {isInc ? '+' : '−'}{money(Number(isInc ? p.credit : p.debit))}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
             )}
           </div>
-          <div className="mt-3 flex items-center justify-between rounded-xl border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-3">
+          <div className="mt-2 flex items-center justify-between rounded-xl border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2">
             <p className="text-sm font-extrabold text-slate-800">BALANCE TOTAL</p>
-            <p className={`text-xl font-extrabold tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(grandTotal)}</p>
+            <p className={`text-lg font-extrabold tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-slate-800'}`}>{money(grandTotal)}</p>
           </div>
         </div>
       </section>

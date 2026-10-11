@@ -413,7 +413,11 @@ export function buildLedger(args: {
       projected = 0
       status = isIncome ? 'BONUS' : 'UNPLANNED'
     }
-    const variance = isIncome ? actual - projected : projected - actual
+    // Signed convention: variance = actual − projected for BOTH income and expense.
+    // actual is signed (+ income, − expense), so this yields the documented intent:
+    // positive = favorable (income over plan / expense under plan → saved) = green.
+    // Unplanned expense (projected = 0) → negative = red (money left un-planned).
+    const variance = actual - projected
     rows.push({
       id: tid, date: t.date, entity: t.detail, fullDetail: t.detail, category: cat,
       account: t.bank_account, actual, projected, variance,
@@ -435,7 +439,7 @@ export function buildLedger(args: {
     rows.push({
       id: `plan::${key}`, date: o.occurrence_date, entity: o.concept, fullDetail: o.concept,
       category: rcat || 'Proyección', account: 'Cuenta principal',
-      actual: 0, projected: signed, variance: isInc ? -signed : signed,
+      actual: 0, projected: signed, variance: -signed,
       status: 'PLANNED_UNSPENT', classification: isInc ? 'TRUE_INCOME' : 'FIXED_EXPENSE',
       ruleId: o.id, ruleFrequency: o.frequency, txId: null, isRecurringRule: true,
     })
@@ -457,12 +461,18 @@ export function buildLedger(args: {
     buckets.push({ category: cat, actual: actualSpent, budget, remaining: budget - actualSpent, over: actualSpent > budget })
   }
   const bucketByCat = new Map(buckets.map((b) => [b.category, b]))
+  // Place each bucket's budget on ONE representative row (the first tx of the
+  // category) so totals count the budget once; sibling rows stay neutral and
+  // the bucket pill above the table explains the aggregate.
+  const budgetPlaced = new Set<string>()
   for (const r of rows) {
     if (r.classification === 'INTERNAL_TRANSFER') continue
     const b = bucketByCat.get(r.category)
     if (!b || r.txId == null) continue
+    if (budgetPlaced.has(b.category)) continue
+    budgetPlaced.add(b.category)
     r.projected = -b.budget
-    r.variance = b.remaining
+    r.variance = b.remaining // budget − spent → positive = under budget (favorable)
   }
 
   rows.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
@@ -474,6 +484,7 @@ export function buildLedger(args: {
     actualNet += r.actual
     projectedNet += r.projected
   }
-  return { rows, buckets, totals: { actualNet, projectedNet, gap: projectedNet - actualNet } }
+  // gap > 0 = reality better than plan (both UIs color gap > 0 green).
+  return { rows, buckets, totals: { actualNet, projectedNet, gap: actualNet - projectedNet } }
 }
 

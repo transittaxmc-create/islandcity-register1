@@ -627,9 +627,9 @@ export default function EstadoBancario() {
   const ledgerRow = (r: any) => {
     const isTransfer = r.status === 'TRANSFER'
     const isBonus = r.status === 'BONUS'
-    const isExp = r.actual < 0 || (r.actual === 0 && r.projected < 0)
-    // Expense: variance = projected − actual → positive = saved (green).
-    // Income:  variance = actual − projected → positive = over plan (green).
+    // Signed convention (engine): variance = actual − projected →
+    // positive = favorable (income over plan / expense under plan) = green.
+    // Unplanned rows have projected = 0 → overspend shows red, bonus income green.
     const vGood = r.variance > 0.005
     const vBad = r.variance < -0.005
     return (

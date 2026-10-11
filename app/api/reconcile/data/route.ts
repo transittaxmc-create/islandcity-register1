@@ -183,16 +183,13 @@ export async function DELETE(req: NextRequest) {
   try {
     const sb = supabaseServer()
     const id = req.nextUrl.searchParams.get('id') || ''
-    if (id.includes('::')) {
-      // Borrar una ocurrencia proyectada = borrar la regla completa.
-      const ruleId = id.split('::')[0]
-      const { error } = await sb.from(RP).delete().eq('id', ruleId)
-      if (error) throw error
-      return NextResponse.json({ ok: true })
-    }
+    // ID de regla: con '::' (ocurrencia) o sin él (borrado directo desde Proyecciones).
+    const ruleId = id.includes('::') ? id.split('::')[0] : id
+    const { data: rpDel } = await sb.from(RP).delete().eq('id', ruleId).select('id')
+    if (rpDel && rpDel.length > 0) return NextResponse.json({ ok: true, deleted: 'rule' })
     const { error } = await sb.from(TX).delete().eq('id', id)
     if (error) throw error
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, deleted: 'transaction' })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

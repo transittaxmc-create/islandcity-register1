@@ -83,9 +83,9 @@ export async function POST(req: NextRequest) {
     }).select().single()
     if (rErr) throw rErr
 
-    // Crea el movimiento real (gasto) con el comprobante adjunto.
+    // Crea el movimiento real (gasto) con el comprobante adjunto, POR CUENTA.
     const { data: prev } = await sb.from('bank_transactions')
-      .select('daily_balance').lte('date', receipt_date)
+      .select('daily_balance').eq('bank_account', 'Cuenta principal').lte('date', receipt_date)
       .order('date', { ascending: false }).order('created_at', { ascending: false }).limit(1)
     const prevBal = prev?.[0]?.daily_balance ? Number(prev[0].daily_balance) : 0
 

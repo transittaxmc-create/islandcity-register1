@@ -161,3 +161,25 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Elegant slim scrollbar for the register / bounded boxes */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: #c9d3e0 transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.scroll-slim::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background-color: #cdd6e2;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.scroll-slim::-webkit-scrollbar-thumb:hover {
+  background-color: #aab6c7;
+}

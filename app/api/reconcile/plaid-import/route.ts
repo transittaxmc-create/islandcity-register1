@@ -106,7 +106,14 @@ export async function POST(req: NextRequest) {
       if (insErr) throw new Error('Insert: ' + insErr.message)
       imported++
     }
-    return NextResponse.json({ imported, duplicates })
+    // Auto-enlace de transferencias a su origen (no rompe el import si falla;
+    // el enlace se puede reintentar con POST /api/reconcile/transfers/auto)
+    let autoLinked = 0
+    try {
+      const { autoLinkTransfers } = await import('@/lib/auto-link')
+      autoLinked = (await autoLinkTransfers()).linked
+    } catch { /* el import ya quedó guardado */ }
+    return NextResponse.json({ imported, duplicates, autoLinked })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

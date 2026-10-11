@@ -18,7 +18,6 @@ const MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct
 const BLUE = '#3b82f6'
 const ORANGE = '#f59e0b'
 const GREEN = '#16a34a'
-const GREEN_LINE = '#22c55e'
 const INK = '#1e293b'
 const DONUT_COLORS = ['#3b82f6', '#f59e0b', '#eab308', '#8b5cf6', '#14b8a6', '#ef4444', '#94a3b8']
 
@@ -205,16 +204,6 @@ export default function ProjectionsPanel() {
   const maxBar = Math.max(1, ...monthly.flatMap((m) => [m.inc, m.exp]))
   const barTicks = [maxBar, (maxBar * 3) / 4, maxBar / 2, maxBar / 4, 0]
 
-  const nets = monthly.map((m) => m.inc - m.exp)
-  const maxNet = Math.max(1, ...nets.map(Math.abs))
-  const nPts = nets.map((n, i) => ({
-    x: nets.length > 1 ? (i / (nets.length - 1)) * 300 : 150,
-    y: 95 - (n / maxNet) * 78,
-  }))
-  const nLine = nPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const nArea = `0,190 ${nLine} 300,190`
-  const netTicks = [maxNet, maxNet / 2, 0, -maxNet / 2, -maxNet]
-
   const donutSegs = catTotal.slice(0, 6) as [string, number][]
   const donutTotal = donutSegs.reduce((s, kv) => s + kv[1], 0)
   const R = 70
@@ -299,25 +288,40 @@ export default function ProjectionsPanel() {
         </div>
 
         <div className={`${card} xl:col-span-2`}>
-          <h3 className={h3}>Tendencia neta</h3>
-          <div className="mt-3 flex gap-2">
-            <div className="flex h-[150px] w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-slate-400">
-              {netTicks.map((t) => (
-                <span key={t}>{moneyK(t)}</span>
-              ))}
-            </div>
-            <svg viewBox="0 0 300 190" className="h-[150px] min-w-0 flex-1" preserveAspectRatio="none">
-              <line x1="0" y1="95" x2="300" y2="95" stroke="#e2e8f0" strokeDasharray="4 4" />
-              <polygon points={nArea} fill={GREEN_LINE} opacity="0.12" />
-              <polyline points={nLine} fill="none" stroke={GREEN_LINE} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-              {nPts.map((p, i) => (
-                <circle key={i} cx={p.x} cy={p.y} r="4" fill={nets[i] < 0 ? '#ef4444' : GREEN} stroke="#fff" strokeWidth="1.5" />
+          <h3 className={h3}>Gastos por categoría</h3>
+          <div className="relative mx-auto mt-3 size-[148px]">
+            <svg viewBox="0 0 180 180" className="size-full -rotate-0">
+              <circle cx="90" cy="90" r={R} fill="none" stroke="#eef2f7" strokeWidth="26" />
+              {dSegs.map((s) => (
+                <circle
+                  key={s.k}
+                  cx="90"
+                  cy="90"
+                  r={R}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth="26"
+                  strokeDasharray={s.dash}
+                  transform={`rotate(${s.rot - 90} 90 90)`}
+                />
               ))}
             </svg>
+            <div className="absolute inset-0 grid place-items-center text-center">
+              <div>
+                <div className="text-lg font-extrabold tabular-nums text-slate-800">{money(donutTotal)}</div>
+                <div className="text-[10px] text-slate-400">Total gastos</div>
+              </div>
+            </div>
           </div>
-          <div className="mt-1 flex justify-between text-[10px] font-medium text-slate-500">
-            <span>{MES[0]}</span>
-            <span>{nets.length > 0 ? MES[nets.length - 1] : ''}</span>
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+            {dSegs.map((s) => (
+              <div key={s.k} className="flex min-w-0 items-center gap-1.5 text-xs">
+                <i className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
+                <span className="min-w-0 flex-1 truncate text-slate-500">{s.k}</span>
+                <span className="font-bold tabular-nums text-slate-700">{donutTotal > 0 ? Math.round((s.v / donutTotal) * 100) : 0}%</span>
+              </div>
+            ))}
+            {dSegs.length === 0 && <p className="col-span-2 py-2 text-center text-xs text-slate-400">Sin gastos registrados.</p>}
           </div>
         </div>
       </section>
@@ -405,48 +409,6 @@ export default function ProjectionsPanel() {
         </div>
       </section>
 
-      {/* Gastos por categoría — horizontal card */}
-      <section className="mt-5">
-        <div className={card}>
-          <h3 className={h3}>Gastos por categoría</h3>
-          <div className="mt-3 flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-8">
-            <div className="relative mx-auto mt-2 size-[152px] shrink-0 sm:mx-0">
-            <svg viewBox="0 0 180 180" className="size-full -rotate-0">
-              <circle cx="90" cy="90" r={R} fill="none" stroke="#eef2f7" strokeWidth="26" />
-              {dSegs.map((s) => (
-                <circle
-                  key={s.k}
-                  cx="90"
-                  cy="90"
-                  r={R}
-                  fill="none"
-                  stroke={s.color}
-                  strokeWidth="26"
-                  strokeDasharray={s.dash}
-                  transform={`rotate(${s.rot - 90} 90 90)`}
-                />
-              ))}
-            </svg>
-            <div className="absolute inset-0 grid place-items-center text-center">
-              <div>
-                <div className="text-lg font-extrabold text-slate-800">{money(donutTotal)}</div>
-                <div className="text-[10px] text-slate-400">Total gastos</div>
-              </div>
-            </div>
-          </div>
-          <div className="min-w-0 flex-1 space-y-2 self-center">
-            {dSegs.map((s) => (
-              <div key={s.k} className="flex items-center gap-2 text-sm">
-                <i className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
-                <span className="min-w-0 flex-1 truncate text-slate-500">{s.k}</span>
-                <span className="font-bold tabular-nums text-slate-700">{donutTotal > 0 ? Math.round((s.v / donutTotal) * 100) : 0}%</span>
-              </div>
-            ))}
-            {dSegs.length === 0 && <p className="py-4 text-center text-sm text-slate-400">Sin gastos registrados.</p>}
-          </div>
-          </div>
-        </div>
-      </section>
     </div>
   )
 }

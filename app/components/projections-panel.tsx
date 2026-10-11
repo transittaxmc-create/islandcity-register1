@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 type Acct = { name: string; current_balance: number | null; institution: string | null; display_order: number }
 type MonthData = { ym: string; inc: number; exp: number; byCat: Map<string, number> }
 type SummaryMonth = { ym: string; inc: number; exp: number; byCat: [string, number][] }
 type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; debit: number; credit: number }
+type RuleItem = { id: string; concept: string; amount: number; type: string; frequency: string; pay_day: string; end_date: string | null }
 type LedgerRowT = {
   id: string; date: string; entity: string; fullDetail: string; category: string; account: string
   actual: number; projected: number; variance: number; status: string
@@ -14,8 +15,6 @@ type LedgerRowT = {
 
 const SUMMARY_CACHE = 'proj-summary-v1'
 const LEDGER_CACHE = 'ledger-2026-v1'
-const PROJ_ROW_H = 52
-const PROJ_VIEW_H = 220
 
 const num2 = (v: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0)
@@ -150,9 +149,12 @@ export default function ProjectionsPanel() {
   const [ledgerLoading, setLedgerLoading] = useState(true)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
-  const [scrollTop, setScrollTop] = useState(0)
-  const listRef = useRef<HTMLDivElement>(null)
-  const rafRef = useRef(0)
+  const [ruleItems, setRuleItems] = useState<RuleItem[]>([])
+  const [sortKey, setSortKey] = useState('date-asc')
+  const [newRule, setNewRule] = useState<null | {
+    date: string; detail: string; ptype: string; amount: string; frequency: string; end_date: string
+  }>(null)
+  const [ruleBusy, setRuleBusy] = useState(false)
 
   const applyLedger = (lj: any) => {
     setLedgerRows(((lj.rows || []) as LedgerRowT[]).slice().sort((a, b) => String(a.date).localeCompare(String(b.date))))
@@ -211,6 +213,55 @@ export default function ProjectionsPanel() {
     const items = ((sj.projected || []) as ProjItem[]).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
     setProjItems(items)
     setProjTotals(sj.projTotals || { income: 0, expenses: 0 })
+    setRuleItems(((sj.ruleItems || []) as RuleItem[]).slice().sort((a, b) => String(a.pay_day).localeCompare(String(b.pay_day))))
+  }
+
+  const refreshSummary = async () => {
+    try {
+      const sj = await fetch('/api/projections/summary', { cache: 'no-store' }).then((r) => r.json())
+      if (sj?.error) throw new Error(sj.error)
+      applySummary(sj)
+      try {
+        sessionStorage.setItem(SUMMARY_CACHE, JSON.stringify(sj))
+      } catch {}
+    } catch {}
+  }
+
+  const commitRule = async () => {
+    if (!newRule || ruleBusy) return
+    const amount = Math.abs(Number(newRule.amount) || 0)
+    if (!newRule.detail.trim() || amount <= 0 || !newRule.date) return
+    setRuleBusy(true)
+    try {
+      const isInc = newRule.ptype === 'ingreso'
+      const res = await fetch('/api/reconcile/data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entry_type: 'proyectado',
+          date: newRule.date,
+          detail: newRule.detail.trim(),
+          frequency: newRule.frequency,
+          debit: isInc ? 0 : amount,
+          credit: isInc ? amount : 0,
+          end_date: newRule.end_date || null,
+        }),
+      }).then((r) => r.json())
+      if (res?.error) throw new Error(res.error)
+      setNewRule(null)
+      await refreshSummary()
+    } catch {
+      // keep the form open so nothing is lost
+    } finally {
+      setRuleBusy(false)
+    }
+  }
+
+  const deleteRule = async (id: string) => {
+    try {
+      await fetch(`/api/reconcile/data?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+      await refreshSummary()
+    } catch {}
   }
 
   useEffect(() => {
@@ -244,22 +295,6 @@ export default function ProjectionsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const onProjScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const top = e.currentTarget.scrollTop
-    cancelAnimationFrame(rafRef.current)
-    rafRef.current = requestAnimationFrame(() => setScrollTop(top))
-  }
-
-  useEffect(() => () => cancelAnimationFrame(rafRef.current), [])
-
-  const projWin = useMemo(() => {
-    const n = projItems.length
-    if (!n) return { start: 0, end: 0 }
-    const start = Math.max(0, Math.floor(scrollTop / PROJ_ROW_H) - 3)
-    const end = Math.min(n, Math.ceil((scrollTop + PROJ_VIEW_H) / PROJ_ROW_H) + 3)
-    return { start, end }
-  }, [scrollTop, projItems.length])
-
   const bankTotal = useMemo(
     () => accounts.reduce((s, a) => s + (Number(a.current_balance) || 0), 0),
     [accounts]
@@ -269,7 +304,26 @@ export default function ProjectionsPanel() {
   const totPI = projTotals.income
   const totPE = projTotals.expenses
   const grandTotal = bankTotal + totPI - totPE
-  const projCount = projItems.length
+  const projIncCount = projItems.filter((p) => Number(p.credit) > 0).length
+  const projExpCount = projItems.filter((p) => Number(p.debit) > 0).length
+
+  const sortedLedger = useMemo(() => {
+    const r = [...ledgerRows]
+    switch (sortKey) {
+      case 'date-desc':
+        return r.sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
+      case 'entity':
+        return r.sort((a, b) => a.entity.localeCompare(b.entity) || a.date.localeCompare(b.date))
+      case 'amount-desc':
+        return r.sort((a, b) => Math.abs(b.actual) - Math.abs(a.actual))
+      case 'amount-asc':
+        return r.sort((a, b) => Math.abs(a.actual) - Math.abs(b.actual))
+      case 'status':
+        return r.sort((a, b) => a.status.localeCompare(b.status) || a.date.localeCompare(b.date))
+      default:
+        return r.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    }
+  }, [ledgerRows, sortKey])
 
   const monthly: MonthData[] = useMemo(
     () =>
@@ -336,10 +390,114 @@ export default function ProjectionsPanel() {
 
       {/* KPIs */}
       <section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi icon={IBar} label="Ingresos proyectados" value={money(totPI)} sub={`${projCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
-        <Kpi icon={ICart} label="Gastos proyectados" value={money(totPE)} sub={`${projCount} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
+        <Kpi icon={IBar} label="Ingresos proyectados" value={money(totPI)} sub={`${projIncCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
+        <Kpi icon={ICart} label="Gastos proyectados" value={money(totPE)} sub={`${projExpCount} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
         <Kpi icon={IDb} label="Balance bancario" value={money(bankTotal)} sub={`${accounts.length} cuentas · saldo final`} valueColor="text-slate-800" accent="#3b82f6" />
         <Kpi icon={IPct} label="Balance total" value={money(grandTotal)} sub="Banco + ingresos − gastos" valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
+      </section>
+
+      {/* Proyecciones — reglas con entrada en línea */}
+      <section className="mt-3">
+        <div className={card}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className={h3}>Proyecciones</h3>
+              <p className="mt-0.5 text-[11px] text-slate-400">Ingresos y gastos recurrentes. Se suman a los totales de arriba.</p>
+            </div>
+            {!newRule && (
+              <button
+                onClick={() =>
+                  setNewRule({
+                    date: new Date().toISOString().slice(0, 10),
+                    detail: '',
+                    ptype: 'gasto',
+                    amount: '',
+                    frequency: 'Mensual',
+                    end_date: '',
+                  })
+                }
+                className="rounded-lg bg-[#147d6b] px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#106b5c]"
+              >
+                + Añadir proyección
+              </button>
+            )}
+          </div>
+          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-[11px] text-slate-400">
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Inicio</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detalle</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Tipo</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Frecuencia</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Hasta cuándo</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {newRule && (
+                  <tr className="border-t-2 border-[#40b9a1] bg-emerald-50/60">
+                    <td className="px-2 py-2">
+                      <input type="date" value={newRule.date} onChange={(e) => setNewRule({ ...newRule, date: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <input value={newRule.detail} onChange={(e) => setNewRule({ ...newRule, detail: e.target.value })} placeholder="Ej. Car leasing" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <select value={newRule.ptype} onChange={(e) => setNewRule({ ...newRule, ptype: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
+                        <option value="gasto">Gasto</option>
+                        <option value="ingreso">Ingreso</option>
+                      </select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="number" inputMode="decimal" value={newRule.amount} onChange={(e) => setNewRule({ ...newRule, amount: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-sm" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <select value={newRule.frequency} onChange={(e) => setNewRule({ ...newRule, frequency: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm">
+                        {['Un solo pago', 'Diaria', 'Semanal', 'Mensual', 'Anual'].map((f) => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-2">
+                      <input type="date" value={newRule.end_date} onChange={(e) => setNewRule({ ...newRule, end_date: e.target.value })} title="Hasta cuándo corre esta proyección (opcional)" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
+                    </td>
+                    <td className="px-2 py-2">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={commitRule} disabled={ruleBusy} className="rounded-lg bg-[#40b9a1] px-2 py-1 text-xs font-bold text-[#10243f] disabled:opacity-50">✓</button>
+                        <button onClick={() => setNewRule(null)} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500">✕</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {ruleItems.map((r) => {
+                  const isInc = r.type === 'ingreso'
+                  return (
+                    <tr key={r.id} className="border-t border-slate-100">
+                      <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-500">{fmtD(r.pay_day)}</td>
+                      <td className="px-2 py-2 font-medium text-slate-700">{r.concept}</td>
+                      <td className={`whitespace-nowrap px-2 py-2 font-semibold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
+                        {isInc ? 'Ingreso' : 'Gasto'}
+                      </td>
+                      <td className={`whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums ${isInc ? 'text-[#16a34a]' : 'text-slate-800'}`}>
+                        {money(r.amount)}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-500">{r.frequency}</td>
+                      <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-slate-500">{r.end_date ? fmtD(r.end_date) : '—'}</td>
+                      <td className="px-2 py-2 text-right">
+                        <button onClick={() => deleteRule(r.id)} title="Borrar proyección" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {ruleItems.length === 0 && !newRule && (
+                  <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-400">Sin proyecciones. Toca <b>+ Añadir proyección</b> para registrar ingresos y gastos recurrentes.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       {/* Barras + dona */}
@@ -432,9 +590,24 @@ export default function ProjectionsPanel() {
               <h3 className={h3}>Full Register 2026</h3>
               <p className="text-[11px] text-slate-400">Reality vs plan — did I spend/earn what I planned?</p>
             </div>
-            <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
-              {ledgerRows.length} rows
-            </span>
+            <div className="flex items-center gap-2">
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value)}
+                title="Ordenar"
+                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600"
+              >
+                <option value="date-asc">Fecha ↑</option>
+                <option value="date-desc">Fecha ↓</option>
+                <option value="entity">Proveedor A–Z</option>
+                <option value="amount-desc">Monto ↓</option>
+                <option value="amount-asc">Monto ↑</option>
+                <option value="status">Estado</option>
+              </select>
+              <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
+                {ledgerRows.length} rows
+              </span>
+            </div>
           </div>
           {ledgerAlert?.message && (
             <div className={`mt-2 rounded-xl border px-4 py-2 text-xs font-bold ${ledgerAlert.level === 'red' ? 'border-red-200 bg-red-50 text-red-700' : ledgerAlert.level === 'orange' ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-yellow-200 bg-yellow-50 text-yellow-700'}`}>
@@ -451,9 +624,9 @@ export default function ProjectionsPanel() {
               ))}
             </div>
           )}
-          <div className="scroll-slim mt-2 max-h-[300px] overflow-auto rounded-lg border border-slate-100">
+          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
             <table className="w-full min-w-[900px] border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-white">
+              <thead>
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Date</th>
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Entity</th>
@@ -471,7 +644,7 @@ export default function ProjectionsPanel() {
                 ) : ledgerRows.length === 0 ? (
                   <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">No ledger rows — add transactions or projection rules.</td></tr>
                 ) : (
-                  ledgerRows.map((r) => (
+                  sortedLedger.map((r) => (
                     <LedgerRowView key={r.id} r={r} />
                   ))
                 )}

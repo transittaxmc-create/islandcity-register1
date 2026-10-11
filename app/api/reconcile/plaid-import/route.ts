@@ -5,6 +5,29 @@
 //   -> { imported, duplicates }
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { extractCounterparty, normSender, heuristicKind } from '@/lib/transfer-sender'
+
+// Chequeo de seguridad (no-Zelle): patrones explícitos de transferencia interna.
+// Conservador: solo marca con evidencia clara en el detalle.
+function isInternalTransfer(detail: string): boolean {
+  const dl = (detail || '').toLowerCase().trim()
+  if (dl.includes('account unload to card')) return true
+  if (dl.includes('money transfer') && (dl.includes('••••7693') || dl.includes('paypal debit card') || dl.includes('mastercard debit card'))) return true
+  if (/^(\d{1,2}\/\d{1,2}\/\d{4}\s+)?backup balance$/.test(dl)) return true
+  if (/\btransfer\b/i.test(dl) && /\b(shares|checking|savings)\b/i.test(dl)) return true
+  return false
+}
+
+// Memoria de remitentes: sender -> 'transfer' | 'payment'. null si no hay memoria/tabla.
+async function senderMemoryKind(sb: any, norm: string): Promise<'transfer' | 'payment' | null> {
+  try {
+    const { data } = await sb.from('transfer_senders').select('kind').eq('sender', norm).limit(1)
+    const k = data?.[0]?.kind
+    return k === 'transfer' || k === 'payment' ? k : null
+  } catch {
+    return null
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,16 +73,33 @@ export async function POST(req: NextRequest) {
       })
       if (dup) { duplicates++; continue }
 
-      // Balance del día (igual que la ruta data).
+      // Balance del día (igual que la ruta data), POR CUENTA.
       const { data: prev } = await sb.from('bank_transactions')
-        .select('daily_balance').lte('date', date)
+        .select('daily_balance').eq('bank_account', account || 'Cuenta principal').lte('date', date)
         .order('date', { ascending: false }).order('created_at', { ascending: false }).limit(1)
       const prevBal = prev?.[0]?.daily_balance ? Number(prev[0].daily_balance) : 0
       const bal = prevBal + (credit || 0) - (debit || 0)
 
+      // Clasificación por REMITENTE (Miguel): de dónde viene el dinero.
+      // - Remitente propio -> transferencia interna (nunca ingreso)
+      // - Plataforma -> ingreso (solo créditos)
+      // - Desconocido/ambiguo -> 'Por verificar' (él confirma en la app, la AI aprende)
+      let category = 'Otro'
+      const cp = extractCounterparty(String(detail))
+      if (cp) {
+        const norm = normSender(cp)
+        const kind = (await senderMemoryKind(sb, norm)) || heuristicKind(norm)
+        if (kind === 'transfer') category = 'Transferencias Internas'
+        else if (kind === 'payment' && credit) category = 'Ingresos'
+        else if (!kind) category = 'Por verificar'
+      } else if (isInternalTransfer(String(detail))) {
+        category = 'Transferencias Internas'
+      }
+
       const { error: insErr } = await sb.from('bank_transactions').insert({
         date, bank_account: account || 'Cuenta principal',
-        detail: String(detail).slice(0, 200), category: 'Otro',
+        detail: String(detail).slice(0, 200),
+        category,
         debit: debit || null, credit: credit || null, daily_balance: bal,
         source: 'plaid',
       })

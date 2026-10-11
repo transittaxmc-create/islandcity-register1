@@ -25,7 +25,14 @@ import {
   Trash2,
 } from 'lucide-react'
 
-const rows: { month: string; actual: number; projected: number; balance: number; status: string }[] = []
+const rows: { month: string; actual: number; projected: number; balance: number; status: string }[] = [
+  { month: 'Abril', actual: 15400, projected: 16200, balance: 11800, status: 'en línea' },
+  { month: 'Mayo', actual: 18900, projected: 17500, balance: 13150, status: 'superado' },
+  { month: 'Junio', actual: 17200, projected: 17900, balance: 14580, status: 'en línea' },
+  { month: 'Julio', actual: 21500, projected: 18400, balance: 16340, status: 'superado' },
+  { month: 'Agosto', actual: 19800, projected: 18900, balance: 17720, status: 'en línea' },
+  { month: 'Septiembre', actual: 22600, projected: 19400, balance: 18420, status: 'superado' },
+]
 
 const money = (value: number) => new Intl.NumberFormat('es-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
 

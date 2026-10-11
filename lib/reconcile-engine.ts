@@ -234,12 +234,6 @@ export function summarize(
   const monthly: SummaryMonth[] = []
   const matches: MatchRow[] = []
   for (const m of months) {
-    const auto = detectTransfers(m.txs, linked)
-    const autoIds = new Set<string>()
-    for (const p of auto) {
-      autoIds.add(p.fromId)
-      autoIds.add(p.toId)
-    }
     let inc = 0
     let exp = 0
     const byCat = new Map<string, number>()
@@ -249,9 +243,10 @@ export function summarize(
     let transfers = 0
     for (const t of m.txs) {
       const tid = String((t as any).id)
-      // Transferencia = linkeada, auto-detectada, O categorizada como tal
-      // (misma regla que el Estado Bancario: nunca inflan ingresos/gastos).
-      const isTransfer = linked.has(tid) || autoIds.has(tid) || isTransferCat(t.category)
+      // Transferencia = linkeada O categorizada como tal.
+      // (Misma definición que el Estado Bancario: los números tienen que marchar.
+      // La auto-detección por pares se usa solo en el ledger comparativo, no aquí.)
+      const isTransfer = linked.has(tid) || isTransferCat(t.category)
       const match = matchOne(t, m.occurrences)
       const cls = classifyOne({
         t,

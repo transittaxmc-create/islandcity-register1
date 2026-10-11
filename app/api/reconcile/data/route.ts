@@ -111,9 +111,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ rule: data })
     }
 
-    // Fila real: calcula el balance del día.
+    // Fila real: calcula el balance del día, POR CUENTA.
     const { data: prev } = await sb.from(TX)
-      .select('daily_balance').lte('date', date)
+      .select('daily_balance').eq('bank_account', bank_account).lte('date', date)
       .order('date', { ascending: false }).order('created_at', { ascending: false }).limit(1)
     const prevBal = prev?.[0]?.daily_balance ? Number(prev[0].daily_balance) : 0
     const bal = prevBal + Number(credit) - Number(debit)
@@ -134,7 +134,7 @@ export async function PATCH(req: NextRequest) {
     const sb = supabaseServer()
     const b = await req.json()
     const { id, field, value } = b as { id: string; field: string; value: any }
-    const allowed = ['date', 'bank_account', 'detail', 'category', 'frequency', 'debit', 'credit', 'pb_class']
+    const allowed = ['date', 'bank_account', 'detail', 'category', 'frequency', 'debit', 'credit', 'pb_class', 'daily_balance']
     if (!allowed.includes(field)) return NextResponse.json({ error: 'Campo no permitido' }, { status: 400 })
 
     if (String(id).includes('::')) {

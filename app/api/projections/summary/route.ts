@@ -28,7 +28,7 @@ export async function GET() {
 
     const [{ data: accs }, { data: txs }, { data: rules }, { data: links }] = await Promise.all([
       sb.from('bank_accounts').select('name,current_balance,institution,display_order').order('display_order').order('name'),
-      sb.from('bank_transactions').select('*').eq('entry_type', 'real').gte('date', first.start).lte('date', lastM.end),
+      sb.from('bank_transactions').select('*').eq('entry_type', 'real').gte('date', first.start).lte('date', lastM.end).limit(20000),
       sb.from('recurring_projections').select('*'),
       sb.from('transfer_links').select('from_tx,to_tx'),
     ])
@@ -46,6 +46,7 @@ export async function GET() {
       type: r.type === 'ingreso' ? 'ingreso' : 'gasto',
       frequency: r.frequency || '',
       pay_day: String(r.pay_day ?? ''),
+      end_date: r.end_date ? String(r.end_date) : undefined,
     }))
     const rulesById = new Map(ruleList.map((r) => [r.id, r]))
 
@@ -107,6 +108,15 @@ export async function GET() {
       monthly,
       matches,
       rules: { income: ruleIncome, expenses: ruleExpenses, count: ruleList.length },
+      ruleItems: ruleList.map((r) => ({
+        id: r.id,
+        concept: r.concept,
+        amount: r.amount,
+        type: r.type,
+        frequency: r.frequency,
+        pay_day: r.pay_day,
+        end_date: (r as any).end_date || null,
+      })),
       projected,
       projTotals: { income: projIncome, expenses: projExpenses },
       generatedAt: new Date().toISOString(),

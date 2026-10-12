@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 
 type Acct = { name: string; current_balance: number | null; institution: string | null; display_order: number }
-type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; debit: number; credit: number }
-type RuleItem = { id: string; concept: string; amount: number; type: string; frequency: string; pay_day: string; end_date: string | null }
+type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; category: string; debit: number; credit: number }
+type RuleItem = { id: string; concept: string; amount: number; type: string; frequency: string; pay_day: string; end_date: string | null; category: string }
 type Tx = { id: string; date: string; detail: string; debit: number; credit: number; category: string }
 
 const SUMMARY_CACHE = 'proj-summary-v1'
@@ -58,6 +58,19 @@ const FREQS: [string, string][] = [
   ['Anual', 'YEARLY'],
 ]
 const freqLabel = (f: string) => (FREQS.find(([v]) => v === f)?.[1] || f)
+const CATS = [
+  'Proyección',
+  'Car Leasing',
+  'Combustible',
+  'Comidas',
+  'Telefonía e Internet',
+  'Vehículo y Operaciones',
+  'Viajes',
+  'Software y Servicios',
+  'Comisiones Bancarias',
+  'Propinas',
+  'Otro',
+]
 
 function localToday() {
   const d = new Date()
@@ -149,7 +162,7 @@ function Kpi({
 const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
-type MoveRow = { key: string; date: string; label: string; sub: string; net: number; chronoBal: number; bankBal: number }
+type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; chronoBal: number; bankBal: number }
 type DailyRow = { date: string; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
 
 // Categorías que son transferencias internas (misma definición que el Estado Bancario)
@@ -166,9 +179,6 @@ export default function ProjectionsPanel() {
   const [safetyFloor, setSafetyFloor] = useState<number>(0)
   const [hideTransfers, setHideTransfers] = useState<boolean>(true)
   const [view, setView] = useState<'banco' | 'proyecciones'>('proyecciones')
-  const [newRule, setNewRule] = useState<null | {
-    date: string; detail: string; ptype: string; amount: string; frequency: string; end_date: string
-  }>(null)
   const [ruleBusy, setRuleBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -176,6 +186,8 @@ export default function ProjectionsPanel() {
   const today = useMemo(localToday, [])
   const year = today.slice(0, 4)
   const yearEnd = `${year}-12-31`
+  const emptyEntry = { date: today, detail: '', category: 'Proyección', inc: '', exp: '', frequency: 'Mensual', end_date: '' }
+  const [entry, setEntry] = useState({ ...emptyEntry })
 
   // Preferencias guardadas: banco principal + balances corregidos + mínimo + ocultar transfers
   useEffect(() => {
@@ -239,28 +251,31 @@ export default function ProjectionsPanel() {
     } catch {}
   }
 
-  const commitRule = async () => {
-    if (!newRule || ruleBusy) return
-    const amount = Math.abs(Number(newRule.amount) || 0)
-    if (!newRule.detail.trim() || amount <= 0 || !newRule.date) return
+  const commitEntry = async () => {
+    if (ruleBusy) return
+    const inc = Math.abs(Number(entry.inc) || 0)
+    const exp = Math.abs(Number(entry.exp) || 0)
+    const amount = inc > 0 ? inc : exp
+    if (!entry.detail.trim() || amount <= 0 || !entry.date) return
     setRuleBusy(true)
     try {
-      const isInc = newRule.ptype === 'ingreso'
+      const isInc = inc > 0
       const res = await fetch('/api/reconcile/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           entry_type: 'proyectado',
-          date: newRule.date,
-          detail: newRule.detail.trim(),
-          frequency: newRule.frequency,
+          date: entry.date,
+          detail: entry.detail.trim(),
+          category: entry.category || 'Proyección',
+          frequency: entry.frequency,
           debit: isInc ? 0 : amount,
           credit: isInc ? amount : 0,
-          end_date: newRule.end_date || null,
+          end_date: entry.end_date || null,
         }),
       }).then((r) => r.json())
       if (res?.error) throw new Error(res.error)
-      setNewRule(null)
+      setEntry({ ...emptyEntry, date: today })
       await refreshSummary()
     } catch {
       // keep the form open so nothing is lost
@@ -470,6 +485,8 @@ export default function ProjectionsPanel() {
         date: t.date,
         label: t.detail,
         sub: t.category,
+        category: t.category || 'Otro',
+        frequency: '',
         net: (Number(t.credit) || 0) - (Number(t.debit) || 0),
       })),
       ...projWin.map((p) => ({
@@ -477,6 +494,8 @@ export default function ProjectionsPanel() {
         date: p.date,
         label: p.detail,
         sub: `Proyección · ${p.frequency || ''}`,
+        category: p.category || 'Proyección',
+        frequency: p.frequency || '',
         net: (Number(p.credit) || 0) - (Number(p.debit) || 0),
       })),
     ].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
@@ -637,7 +656,7 @@ export default function ProjectionsPanel() {
 
       {view === 'proyecciones' && (
       <>
-      {/* Proyecciones — reglas con entrada en línea */}
+      {/* Proyecciones — reglas guardadas (la entrada vive en la primera fila del Registro) */}
       <section className="mt-3">
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -645,23 +664,7 @@ export default function ProjectionsPanel() {
               <h3 className={h3}>Proyecciones</h3>
               <p className="mt-0.5 text-[11px] text-slate-400">Ingresos y gastos recurrentes. Se suman a los totales de arriba.</p>
             </div>
-            {!newRule && (
-              <button
-                onClick={() =>
-                  setNewRule({
-                    date: today,
-                    detail: '',
-                    ptype: 'gasto',
-                    amount: '',
-                    frequency: 'Mensual',
-                    end_date: '',
-                  })
-                }
-                className="rounded-lg bg-[#147d6b] px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#106b5c]"
-              >
-                + Añadir proyección
-              </button>
-            )}
+
           </div>
           <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
             <table className="w-full min-w-[760px] border-collapse text-sm">
@@ -669,6 +672,7 @@ export default function ProjectionsPanel() {
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Inicio</th>
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Detalle</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Categoría</th>
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Tipo</th>
                   <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Frecuencia</th>
@@ -677,41 +681,6 @@ export default function ProjectionsPanel() {
                 </tr>
               </thead>
               <tbody>
-                {newRule && (
-                  <tr className="border-t-2 border-[#40b9a1] bg-emerald-50/60">
-                    <td className="px-2 py-2">
-                      <input type="date" value={newRule.date} onChange={(e) => setNewRule({ ...newRule, date: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
-                    </td>
-                    <td className="px-2 py-2">
-                      <input value={newRule.detail} onChange={(e) => setNewRule({ ...newRule, detail: e.target.value })} placeholder="Ej. Car leasing" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
-                    </td>
-                    <td className="px-2 py-2">
-                      <select value={newRule.ptype} onChange={(e) => setNewRule({ ...newRule, ptype: e.target.value })} className="w-full min-w-[96px] rounded border border-slate-200 px-1 py-0.5 text-sm font-bold">
-                        <option value="gasto">GASTO</option>
-                        <option value="ingreso">INGRESO</option>
-                      </select>
-                    </td>
-                    <td className="px-2 py-2">
-                      <input type="number" inputMode="decimal" value={newRule.amount} onChange={(e) => setNewRule({ ...newRule, amount: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-sm" />
-                    </td>
-                    <td className="px-2 py-2">
-                      <select value={newRule.frequency} onChange={(e) => setNewRule({ ...newRule, frequency: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm font-semibold">
-                        {FREQS.map(([v, label]) => (
-                          <option key={v} value={v}>{label}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-2 py-2">
-                      <input type="date" value={newRule.end_date} onChange={(e) => setNewRule({ ...newRule, end_date: e.target.value })} title="Hasta cuándo corre esta proyección (opcional)" className="w-full rounded border border-slate-200 px-1 py-0.5 text-sm" />
-                    </td>
-                    <td className="px-2 py-2">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={commitRule} disabled={ruleBusy} className="rounded-lg bg-[#40b9a1] px-2 py-1 text-xs font-bold text-[#10243f] disabled:opacity-50">✓</button>
-                        <button onClick={() => setNewRule(null)} className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500">✕</button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
                 {ruleItems.map((r) => {
                   const t = String(r.type || '').toLowerCase()
                   const isInc = t === 'ingreso' || t === 'income'
@@ -719,6 +688,7 @@ export default function ProjectionsPanel() {
                     <tr key={r.id} className="border-t border-slate-100">
                       <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-500">{fmtD(r.pay_day)}</td>
                       <td className="px-2 py-2 font-medium text-slate-700">{r.concept}</td>
+                      <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-500">{r.category || 'Proyección'}</td>
                       <td className={`whitespace-nowrap px-2 py-2 text-xs font-bold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
                         {isInc ? 'INGRESO' : 'GASTO'}
                       </td>
@@ -733,8 +703,8 @@ export default function ProjectionsPanel() {
                     </tr>
                   )
                 })}
-                {ruleItems.length === 0 && !newRule && (
-                  <tr><td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-400">Sin proyecciones. Toca <b>+ Añadir proyección</b> para registrar ingresos y gastos recurrentes.</td></tr>
+                {ruleItems.length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">Sin proyecciones. Entra tus ingresos y gastos en la primera fila del Registro.</td></tr>
                 )}
               </tbody>
             </table>
@@ -888,8 +858,30 @@ export default function ProjectionsPanel() {
                 </tr>
               </thead>
               <tbody>
+                {/* Fila de entrada: primera línea del register */}
+                <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
+                  <td colSpan={3} className="px-2 py-2">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title="Inicio" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
+                      <input value={entry.detail} onChange={(e) => setEntry({ ...entry, detail: e.target.value })} placeholder="Vendedor" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
+                      <select value={entry.category} onChange={(e) => setEntry({ ...entry, category: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs">
+                        {CATS.map((c) => (<option key={c} value={c}>{c}</option>))}
+                      </select>
+                      <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs font-semibold">
+                        {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
+                      </select>
+                      <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="Ingreso" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Gasto" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button onClick={commitEntry} disabled={ruleBusy} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
+                        <button onClick={() => setEntry({ ...emptyEntry, date: today })} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
                 {movesSorted.length === 0 ? (
-                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — añade proyecciones arriba.</td></tr>
+                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — entra tu proyección en la primera fila.</td></tr>
                 ) : (
                   movesSorted.map((r) => {
                     const isProj = r.key.startsWith('pj-')
@@ -900,13 +892,16 @@ export default function ProjectionsPanel() {
                       <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'}`}>
                         <td className="whitespace-nowrap px-2 py-1.5 align-top tabular-nums text-slate-500">{fmtD(r.date)}</td>
                         <td className="min-w-0 px-2 py-1.5 align-top">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`line-clamp-2 text-sm font-semibold leading-snug ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{r.label}</span>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className={`line-clamp-2 text-sm font-semibold leading-snug ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{isProj ? '🔮' : '🏦'} {r.label}</span>
                             {isProj && (
                               <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
                             )}
+                            {isProj && r.frequency && (
+                              <span className="shrink-0 rounded-full bg-blue-50 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-blue-600">{freqLabel(r.frequency)}</span>
+                            )}
                           </div>
-                          <div className="truncate text-xs text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
+                          <div className="truncate text-xs text-slate-400">{r.category}</div>
                         </td>
                         <td className="whitespace-nowrap px-2 py-1.5 text-right align-top">
                           <div className={`font-semibold tabular-nums ${inc > 0 ? 'text-[#16a34a]' : exp > 0 ? 'text-red-500' : 'text-slate-300'}`}>
@@ -931,15 +926,50 @@ export default function ProjectionsPanel() {
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-3 py-2 font-medium">Fecha</th>
                   <th className="border-b border-slate-200 px-3 py-2 font-medium">Vendedor</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance banco</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Gasto</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Categoría</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Frecuencia</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Ingreso</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Gasto</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance banco</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance proyectado</th>
                 </tr>
               </thead>
               <tbody>
+                {/* Fila de entrada: primera línea del register */}
+                <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
+                  <td className="px-2 py-2">
+                    <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title="Inicio" className="w-full rounded border border-slate-200 px-1 py-1 text-xs" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input value={entry.detail} onChange={(e) => setEntry({ ...entry, detail: e.target.value })} placeholder="Vendedor — ej. Car leasing" className="w-full rounded border border-slate-200 px-1 py-1 text-xs" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <select value={entry.category} onChange={(e) => setEntry({ ...entry, category: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-1 text-xs">
+                      {CATS.map((c) => (<option key={c} value={c}>{c}</option>))}
+                    </select>
+                  </td>
+                  <td className="px-2 py-2">
+                    <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-1 text-xs font-semibold">
+                      {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
+                    </select>
+                    <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="mt-1 w-full rounded border border-slate-200 px-1 py-1 text-xs text-slate-500" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-1 text-right font-mono text-xs" />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-1 text-right font-mono text-xs" />
+                  </td>
+                  <td className="px-2 py-2 text-center text-xs text-slate-300">—</td>
+                  <td className="px-2 py-2">
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={commitEntry} disabled={ruleBusy} title="Guardar proyección" className="rounded-lg bg-[#40b9a1] px-2.5 py-1 text-xs font-bold text-[#10243f] disabled:opacity-50">✓</button>
+                      <button onClick={() => setEntry({ ...emptyEntry, date: today })} title="Limpiar" className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">✕</button>
+                    </div>
+                  </td>
+                </tr>
                 {movesSorted.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — añade proyecciones arriba.</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — entra tu proyección en la primera fila.</td></tr>
                 ) : (
                   movesSorted.map((r) => {
                     const isProj = r.key.startsWith('pj-')
@@ -958,13 +988,15 @@ export default function ProjectionsPanel() {
                           </div>
                           <div className="text-[10px] text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{num2(r.bankBal)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-red-500">
-                          {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
-                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{r.category}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs font-medium text-slate-500">{isProj ? freqLabel(r.frequency) : <span className="text-slate-300">—</span>}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-[#16a34a]">
                           {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
                         </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-red-500">
+                          {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{num2(r.bankBal)}</td>
                         <td className={`whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
                           {num2(r.chronoBal)}
                         </td>
@@ -1032,6 +1064,28 @@ export default function ProjectionsPanel() {
                 </tr>
               </thead>
               <tbody>
+                {/* Fila de entrada: primera línea del register */}
+                <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
+                  <td colSpan={3} className="px-2 py-2">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title="Inicio" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
+                      <input value={entry.detail} onChange={(e) => setEntry({ ...entry, detail: e.target.value })} placeholder="Vendedor" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
+                      <select value={entry.category} onChange={(e) => setEntry({ ...entry, category: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs">
+                        {CATS.map((c) => (<option key={c} value={c}>{c}</option>))}
+                      </select>
+                      <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs font-semibold">
+                        {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
+                      </select>
+                      <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="Ingreso" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Gasto" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button onClick={commitEntry} disabled={ruleBusy} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
+                        <button onClick={() => setEntry({ ...emptyEntry, date: today })} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
                 {bancoRows.length === 0 ? (
                   <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
                 ) : (

@@ -67,6 +67,7 @@ export async function GET() {
       frequency: r.frequency || '',
       pay_day: String(r.pay_day ?? ''),
       end_date: r.end_date ? String(r.end_date) : undefined,
+      category: r.category ? String(r.category) : undefined,
     }))
     const rulesById = new Map(ruleList.map((r) => [r.id, r]))
 
@@ -113,6 +114,7 @@ export async function GET() {
         date: o.occurrence_date,
         detail: o.concept,
         frequency: o.frequency,
+        category: (o as any).category || 'Proyección',
         debit: isInc ? 0 : amt,
         credit: isInc ? amt : 0,
       }
@@ -136,6 +138,7 @@ export async function GET() {
         frequency: r.frequency,
         pay_day: r.pay_day,
         end_date: (r as any).end_date || null,
+        category: (r as any).category || '',
       })),
       projected,
       projTotals: { income: projIncome, expenses: projExpenses },

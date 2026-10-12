@@ -162,7 +162,7 @@ function Kpi({
 const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
-type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; chronoBal: number; bankBal: number; ruleId: string | null }
+type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; chronoBal: number; bankBal: number; ruleId: string | null; kind: 'inc' | 'exp' }
 type DailyRow = { date: string; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
 
 // Categorías que son transferencias internas (misma definición que el Estado Bancario)
@@ -254,9 +254,12 @@ export default function ProjectionsPanel() {
     setRuleItems(((sj.ruleItems || []) as RuleItem[]).slice().sort((a, b) => String(a.pay_day).localeCompare(String(b.pay_day))))
   }
 
-  const refreshSummary = async () => {
+  // bust=true: salta el caché del CDN para que la pantalla se actualice al instante,
+  // sin que Miguel tenga que refrescar manualmente.
+  const refreshSummary = async (bust = false) => {
     try {
-      const sj = await fetch('/api/projections/summary', { cache: 'no-store' }).then((r) => r.json())
+      const url = bust ? `/api/projections/summary?_=${Date.now()}` : '/api/projections/summary'
+      const sj = await fetch(url, { cache: 'no-store' }).then((r) => r.json())
       if (sj?.error) throw new Error(sj.error)
       applySummary(sj)
       try {
@@ -337,7 +340,8 @@ export default function ProjectionsPanel() {
     const inc = Math.abs(Number(entry.inc) || 0)
     const exp = Math.abs(Number(entry.exp) || 0)
     const amount = inc > 0 ? inc : exp
-    if (!venName || amount <= 0 || !entry.date) return
+    if (!venName || !entry.date) return
+    if (!editing && amount <= 0) return // en edición se permite 0 (día sin trabajo)
     setRuleBusy(true)
     try {
       await persistList('categories', catName)
@@ -387,7 +391,7 @@ export default function ProjectionsPanel() {
         if (res?.error) throw new Error(res.error)
       }
       cancelEdit()
-      await refreshSummary()
+      await refreshSummary(true)
     } catch {
       // keep the form open so nothing is lost
     } finally {
@@ -479,17 +483,27 @@ export default function ProjectionsPanel() {
     )
 
   const deleteRule = async (id: string) => {
+    // Optimista: la fila desaparece al instante; si falla, se restaura.
+    const prevRules = ruleItems
+    const prevProj = projected
+    setRuleItems((prev) => prev.filter((r) => String(r.id) !== String(id)))
+    setProjected((prev) => prev.filter((pp) => String(pp.rule_id) !== String(id)))
     try {
       await fetch(`/api/reconcile/data?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
-      await refreshSummary()
-    } catch {}
+    } catch {
+      setRuleItems(prevRules)
+      setProjected(prevProj)
+      return
+    }
+    await refreshSummary(true)
   }
 
   // Borra UNA ocurrencia proyectada (solo esa fecha; la regla sigue generando las demás).
   // Solo filas 🔮 — nunca toca movimientos reales del banco.
+  // Optimista: la fila desaparece al instante; si falla, se restaura.
   const deleteOccurrence = async (ruleId: string, date: string) => {
-    if (ruleBusy) return
-    setRuleBusy(true)
+    const prevProj = projected
+    setProjected((prev) => prev.filter((pp) => !(String(pp.rule_id) === String(ruleId) && pp.date === date)))
     try {
       const res = await fetch('/api/reconcile/rules', {
         method: 'POST',
@@ -497,12 +511,11 @@ export default function ProjectionsPanel() {
         body: JSON.stringify({ action: 'delete-occurrence', ruleId, pivot: date }),
       }).then((r) => r.json())
       if (res?.error) throw new Error(res.error)
-      await refreshSummary()
     } catch {
-      // la fila sigue ahí; nada se perdió
-    } finally {
-      setRuleBusy(false)
+      setProjected(prevProj)
+      return
     }
+    await refreshSummary(true)
   }
 
   useEffect(() => {
@@ -703,17 +716,23 @@ export default function ProjectionsPanel() {
         frequency: '',
         net: (Number(t.credit) || 0) - (Number(t.debit) || 0),
         ruleId: null,
+        kind: (Number(t.credit) || 0) > 0 ? ('inc' as const) : ('exp' as const),
       })),
-      ...projWin.map((p) => ({
-        key: `pj-${p.id}`,
-        date: p.date,
-        label: p.detail,
-        sub: `Proyección · ${p.frequency || ''}`,
-        category: p.category || 'Proyección',
-        frequency: p.frequency || '',
-        net: (Number(p.credit) || 0) - (Number(p.debit) || 0),
-        ruleId: p.rule_id || null,
-      })),
+      ...projWin.map((p) => {
+        const rt = ruleItems.find((r) => String(r.id) === String(p.rule_id || ''))
+        const isInc = rt ? String(rt.type || '').toLowerCase() === 'ingreso' : (Number(p.credit) || 0) > 0
+        return {
+          key: `pj-${p.id}`,
+          date: p.date,
+          label: p.detail,
+          sub: `Proyección · ${p.frequency || ''}`,
+          category: p.category || 'Proyección',
+          frequency: p.frequency || '',
+          net: (Number(p.credit) || 0) - (Number(p.debit) || 0),
+          ruleId: p.rule_id || null,
+          kind: isInc ? ('inc' as const) : ('exp' as const),
+        }
+      }),
     ].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
     let run = bankTotal
     let runBank = bankTotal
@@ -722,7 +741,7 @@ export default function ProjectionsPanel() {
       if (m.key.startsWith('tx-')) runBank += m.net
       return { ...m, chronoBal: run, bankBal: runBank }
     })
-  }, [visibleTxs, projWin, bankTotal])
+  }, [visibleTxs, projWin, bankTotal, ruleItems])
 
   const movesSorted = useMemo(() => {
     const r = [...movesChrono]
@@ -1144,8 +1163,8 @@ export default function ProjectionsPanel() {
                           <div className="truncate text-xs text-slate-400">{r.category}</div>
                         </td>
                         <td className="whitespace-nowrap px-2 py-1.5 text-right align-top">
-                          <div className={`font-semibold tabular-nums ${inc > 0 ? 'text-[#16a34a]' : exp > 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                            {inc > 0 ? `+${num2(inc)}` : exp > 0 ? `−${num2(exp)}` : '—'}
+                          <div className={`font-semibold tabular-nums ${inc > 0 ? 'text-[#16a34a]' : exp > 0 ? 'text-red-500' : isProj ? 'text-slate-500' : 'text-slate-300'}`}>
+                            {inc > 0 ? `+${num2(inc)}` : exp > 0 ? `−${num2(exp)}` : isProj ? '$0.00' : '—'}
                           </div>
                           <div className={`font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-900'}`}>
                             {num2(r.chronoBal)}
@@ -1250,10 +1269,10 @@ export default function ProjectionsPanel() {
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{r.category}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs font-medium text-slate-500">{isProj ? freqLabel(r.frequency) : <span className="text-slate-300">—</span>}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-[#16a34a]">
-                          {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
+                          {inc > 0 ? `+${num2(inc)}` : isProj && r.kind === 'inc' ? <span className="text-slate-500">$0.00</span> : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-red-500">
-                          {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
+                          {exp > 0 ? `−${num2(exp)}` : isProj && r.kind === 'exp' ? <span className="text-slate-500">$0.00</span> : <span className="text-slate-300">—</span>}
                         </td>
                         <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{num2(r.bankBal)}</td>
                         <td className={`whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>

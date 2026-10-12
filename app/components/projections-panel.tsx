@@ -894,7 +894,7 @@ export default function ProjectionsPanel() {
   const winExp = projWin.reduce((s, p) => s + (Number(p.debit) || 0), 0)
   const winIncCount = projWin.filter((p) => Number(p.credit) > 0).length
   const winExpCount = projWin.filter((p) => Number(p.debit) > 0).length
-  const grandTotal = bankTotal + winInc - winExp
+  const grandTotal = mainBal + winInc - winExp
 
   // Movimientos del registro (solo banco principal), con balance corrido cronológico
   // Si se ocultan transfers, se excluyen por categoría (las reglas proyectadas no son transfers)
@@ -932,14 +932,16 @@ export default function ProjectionsPanel() {
         }
       }),
     ].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
-    let run = bankTotal
-    let runBank = bankTotal
+    // Balance banco: SOLO datos reales del banco seleccionado (Plaid). Las proyecciones
+    // jamás entran aquí: esta columna nunca muestra un negativo que no sea real.
+    let run = mainBal
+    let runBank = mainBal
     return arr.map((m) => {
       run += m.net
       if (m.key.startsWith('tx-')) runBank += m.net
       return { ...m, chronoBal: run, bankBal: runBank }
     })
-  }, [visibleTxs, projWin, bankTotal, ruleItems])
+  }, [visibleTxs, projWin, mainBal, ruleItems])
 
   const movesSorted = useMemo(() => {
     const r = [...movesChrono]
@@ -967,13 +969,13 @@ export default function ProjectionsPanel() {
     // balance corrido cronológico (de atrás hacia adelante) y luego se muestra más reciente arriba
     const chrono = [...bancoVisibleTxs].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
     const balById = new Map<string, number>()
-    let run = bankTotal
+    let run = mainBal
     for (const t of chrono) {
       run += (Number(t.credit) || 0) - (Number(t.debit) || 0)
       balById.set(t.id, run)
     }
-    return arr.map((t) => ({ ...t, bal: balById.get(t.id) ?? bankTotal }))
-  }, [bancoVisibleTxs, bankTotal])
+    return arr.map((t) => ({ ...t, bal: balById.get(t.id) ?? mainBal }))
+  }, [bancoVisibleTxs, mainBal])
 
   const bancoInc = useMemo(() => bancoVisibleTxs.reduce((s, t) => s + (Number(t.credit) || 0), 0), [bancoVisibleTxs])
   const bancoExp = useMemo(() => bancoVisibleTxs.reduce((s, t) => s + (Number(t.debit) || 0), 0), [bancoVisibleTxs])
@@ -988,7 +990,7 @@ export default function ProjectionsPanel() {
       byDate.set(m.date, e)
     }
     const rows: DailyRow[] = []
-    let run = bankTotal
+    let run = mainBal
     const d = new Date(today + 'T12:00:00')
     const end = new Date(yearEnd + 'T12:00:00')
     while (d <= end) {
@@ -1010,7 +1012,7 @@ export default function ProjectionsPanel() {
       d.setDate(d.getDate() + 1)
     }
     return rows
-  }, [movesChrono, bankTotal, today, yearEnd, safetyFloor])
+  }, [movesChrono, mainBal, today, yearEnd, safetyFloor])
 
   // Punto crítico: día con el balance proyectado más bajo
   const criticalPt = useMemo(() => {
@@ -1024,7 +1026,7 @@ export default function ProjectionsPanel() {
   // sticky bottom-0 dentro de la caja con scroll; fondo sólido para que las filas no se transparenten.
   const proyTotalsBar = (
     <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
-      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
+      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(mainBal)}</span></span>
       <span className="font-semibold text-slate-500">
         <span className="text-[#16a34a]">+{num2(winInc)}</span>
         {' · '}
@@ -1037,14 +1039,14 @@ export default function ProjectionsPanel() {
   )
   const bancoTotalsBar = (
     <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#3b82f6] bg-blue-50 px-4 py-2 text-sm">
-      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
+      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(mainBal)}</span></span>
       <span className="font-semibold text-slate-500">
         <span className="text-[#16a34a]">+{num2(bancoInc)}</span>
         {' · '}
         <span className="text-red-500">−{num2(bancoExp)}</span>
       </span>
-      <span className={`font-extrabold font-mono tabular-nums ${bankTotal + bancoInc - bancoExp < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-        Final {money(bankTotal + bancoInc - bancoExp)}
+      <span className={`font-extrabold font-mono tabular-nums ${mainBal + bancoInc - bancoExp < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+        Final {money(mainBal + bancoInc - bancoExp)}
       </span>
     </div>
   )

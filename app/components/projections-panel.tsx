@@ -328,7 +328,7 @@ export default function ProjectionsPanel() {
     ? mainBank
     : accounts.find((a) => a.name === DEFAULT_MAIN)?.name || accounts[0]?.name || ''
 
-  // Transacciones reales del banco principal desde hoy hasta fin de año
+  // Transacciones reales del banco principal desde hoy hasta fin de año (para la vista PROYECCIONES)
   useEffect(() => {
     if (!effMain) return
     let alive = true
@@ -359,6 +359,48 @@ export default function ProjectionsPanel() {
       alive = false
     }
   }, [effMain, today, year])
+
+  // Vista BANCO: últimos 30 días de transacciones reales (ventana rodante, independiente)
+  const [bancoTxs, setBancoTxs] = useState<Tx[]>([])
+  useEffect(() => {
+    if (!effMain) return
+    let alive = true
+    ;(async () => {
+      const d1 = new Date(today + 'T12:00:00')
+      const d0 = new Date(d1)
+      d0.setDate(d0.getDate() - 29)
+      const iso = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const winStart = iso(d0)
+      const yms = new Set<string>()
+      for (let d = new Date(d0); d <= d1; d.setDate(d.getDate() + 1)) {
+        yms.add(iso(d).slice(0, 7))
+      }
+      const all: Tx[] = []
+      for (const ym of [...yms].sort()) {
+        try {
+          const r = await fetch(`/api/reconcile/data?month=${ym}`).then((x) => x.json())
+          for (const t of r.transactions || []) {
+            const dt = String(t.date || '')
+            if (t.bank_account === effMain && dt >= winStart && dt <= today && t.entry_type !== 'proyectado') {
+              all.push({
+                id: String(t.id),
+                date: t.date,
+                detail: t.detail || '',
+                debit: Number(t.debit) || 0,
+                credit: Number(t.credit) || 0,
+                category: t.category || 'Otro',
+              })
+            }
+          }
+        } catch {}
+      }
+      if (alive) setBancoTxs(all)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [effMain, today])
 
   // Proyecciones dentro de la ventana: hoy → 31 dic
   const projWin = useMemo(
@@ -485,11 +527,15 @@ export default function ProjectionsPanel() {
     }
   }, [movesChrono, sortKey])
 
-  // Vista BANCO: solo transacciones reales, con balance corrido (estilo statement)
+  // Vista BANCO: solo transacciones reales de los últimos 30 días, con balance corrido (estilo statement)
+  const bancoVisibleTxs = useMemo(
+    () => (hideTransfers ? bancoTxs.filter((t) => !isTransferCat(t.category)) : bancoTxs),
+    [bancoTxs, hideTransfers]
+  )
   const bancoRows = useMemo(() => {
-    const arr = [...visibleTxs].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
+    const arr = [...bancoVisibleTxs].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
     // balance corrido cronológico (de atrás hacia adelante) y luego se muestra más reciente arriba
-    const chrono = [...visibleTxs].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    const chrono = [...bancoVisibleTxs].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
     const balById = new Map<string, number>()
     let run = bankTotal
     for (const t of chrono) {
@@ -497,10 +543,10 @@ export default function ProjectionsPanel() {
       balById.set(t.id, run)
     }
     return arr.map((t) => ({ ...t, bal: balById.get(t.id) ?? bankTotal }))
-  }, [visibleTxs, bankTotal])
+  }, [bancoVisibleTxs, bankTotal])
 
-  const bancoInc = useMemo(() => visibleTxs.reduce((s, t) => s + (Number(t.credit) || 0), 0), [visibleTxs])
-  const bancoExp = useMemo(() => visibleTxs.reduce((s, t) => s + (Number(t.debit) || 0), 0), [visibleTxs])
+  const bancoInc = useMemo(() => bancoVisibleTxs.reduce((s, t) => s + (Number(t.credit) || 0), 0), [bancoVisibleTxs])
+  const bancoExp = useMemo(() => bancoVisibleTxs.reduce((s, t) => s + (Number(t.debit) || 0), 0), [bancoVisibleTxs])
 
   // Ledger diario: una fila por día (hoy → 31 dic) con apertura, flujo y cierre proyectado
   const dailyRows: DailyRow[] = useMemo(() => {
@@ -930,7 +976,7 @@ export default function ProjectionsPanel() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3">
               <h3 className={h3}>Banco · {mainAcct ? shortBank(mainAcct) : ''}</h3>
-              <p className="text-[11px] text-slate-400">Transacciones reales · {fmtD(today)} → 31 dic {year}</p>
+              <p className="text-[11px] text-slate-400">Transacciones reales · últimos 30 días</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <label className="text-[11px] font-semibold text-slate-500">Banco</label>

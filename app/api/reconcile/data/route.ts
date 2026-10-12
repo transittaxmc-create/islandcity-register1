@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
           date: o.occurrence_date,
           bank_account: 'Cuenta principal',
           detail: o.concept,
-          category: 'Proyección',
+          category: (r as any).category || 'Proyección',
           frequency: o.frequency,
           entry_type: 'proyectado',
           debit: o.type === 'gasto' ? Number(o.amount) : 0,
@@ -113,12 +113,18 @@ export async function POST(req: NextRequest) {
       const end_date = (b as any).end_date && String((b as any).end_date).match(/^\d{4}-\d{2}-\d{2}$/)
         ? String((b as any).end_date)
         : null
-      // end_date puede no existir aún como columna: se intenta con ella y se reintenta sin ella.
+      // end_date y category pueden no existir aún como columnas: se intenta con ellas y se reintenta sin ellas.
       const payload: any = { concept: detail, frequency, pay_day: date, amount, type }
+      const cat = String(category || '').trim()
+      if (cat) payload.category = cat
       if (end_date) payload.end_date = end_date
       let data: any = null
       let error: any = null
       ;({ data, error } = await sb.from(RP).insert(payload).select().single())
+      if (error && /category/i.test(error.message || '')) {
+        delete payload.category
+        ;({ data, error } = await sb.from(RP).insert(payload).select().single())
+      }
       if (error && end_date && /end_date/i.test(error.message || '')) {
         delete payload.end_date
         ;({ data, error } = await sb.from(RP).insert(payload).select().single())

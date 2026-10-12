@@ -10,6 +10,8 @@ type Tx = { id: string; date: string; detail: string; debit: number; credit: num
 const SUMMARY_CACHE = 'proj-summary-v1'
 const MAIN_BANK_KEY = 'proj-main-bank'
 const OTHER_BAL_KEY = 'proj-other-bal'
+const SAFETY_FLOOR_KEY = 'proj-safety-floor'
+const HIDE_TR_KEY = 'proj-hide-transfers'
 const DEFAULT_MAIN = 'Access Account …6393'
 
 const num2 = (v: number) =>
@@ -100,6 +102,13 @@ const IPct = (
     <circle cx="15.5" cy="15.5" r="2.5" />
   </svg>
 )
+const IAlert = (
+  <svg {...iconProps}>
+    <path d="M12 3 2.5 20h19L12 3z" />
+    <line x1="12" y1="9.5" x2="12" y2="14" />
+    <circle cx="12" cy="17" r="0.6" fill={INK} />
+  </svg>
+)
 
 function Kpi({
   icon,
@@ -141,6 +150,11 @@ const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
 type MoveRow = { key: string; date: string; label: string; sub: string; net: number; chronoBal: number }
+type DailyRow = { date: string; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
+
+// Categorías que son transferencias internas (misma definición que el Estado Bancario)
+const TRANSFER_CATS = ['transfer', 'transferencias internas', 'por verificar']
+const isTransferCat = (c: string) => TRANSFER_CATS.includes(String(c || '').trim().toLowerCase())
 
 export default function ProjectionsPanel() {
   const [accounts, setAccounts] = useState<Acct[]>([])
@@ -150,6 +164,8 @@ export default function ProjectionsPanel() {
   const [otherEdits, setOtherEdits] = useState<Record<string, string>>({})
   const [mainTxs, setMainTxs] = useState<Tx[]>([])
   const [sortKey, setSortKey] = useState('date-desc')
+  const [safetyFloor, setSafetyFloor] = useState<number>(0)
+  const [hideTransfers, setHideTransfers] = useState<boolean>(true)
   const [newRule, setNewRule] = useState<null | {
     date: string; detail: string; ptype: string; amount: string; frequency: string; end_date: string
   }>(null)
@@ -161,15 +177,30 @@ export default function ProjectionsPanel() {
   const year = today.slice(0, 4)
   const yearEnd = `${year}-12-31`
 
-  // Preferencias guardadas: banco principal + balances corregidos
+  // Preferencias guardadas: banco principal + balances corregidos + mínimo + ocultar transfers
   useEffect(() => {
     try {
       const s = localStorage.getItem(MAIN_BANK_KEY)
       if (s) setMainBank(s)
       const o = localStorage.getItem(OTHER_BAL_KEY)
       if (o) setOtherEdits(JSON.parse(o) || {})
+      const f = localStorage.getItem(SAFETY_FLOOR_KEY)
+      if (f !== null && f !== '') setSafetyFloor(Number(f) || 0)
+      const h = localStorage.getItem(HIDE_TR_KEY)
+      if (h !== null) setHideTransfers(h === '1')
     } catch {}
   }, [])
+
+  const setFloor = (v: number) => {
+    const n = Math.max(0, Number(v) || 0)
+    setSafetyFloor(n)
+    try { localStorage.setItem(SAFETY_FLOOR_KEY, String(n)) } catch {}
+  }
+
+  const setHideTr = (v: boolean) => {
+    setHideTransfers(v)
+    try { localStorage.setItem(HIDE_TR_KEY, v ? '1' : '0') } catch {}
+  }
 
   const pickMain = (name: string) => {
     setMainBank(name)
@@ -399,9 +430,15 @@ export default function ProjectionsPanel() {
   const grandTotal = bankTotal + winInc - winExp
 
   // Movimientos del registro (solo banco principal), con balance corrido cronológico
+  // Si se ocultan transfers, se excluyen por categoría (las reglas proyectadas no son transfers)
+  const visibleTxs = useMemo(
+    () => (hideTransfers ? mainTxs.filter((t) => !isTransferCat(t.category)) : mainTxs),
+    [mainTxs, hideTransfers]
+  )
+
   const movesChrono: MoveRow[] = useMemo(() => {
     const arr = [
-      ...mainTxs.map((t) => ({
+      ...visibleTxs.map((t) => ({
         key: `tx-${t.id}`,
         date: t.date,
         label: t.detail,
@@ -421,7 +458,7 @@ export default function ProjectionsPanel() {
       run += m.net
       return { ...m, chronoBal: run }
     })
-  }, [mainTxs, projWin, bankTotal])
+  }, [visibleTxs, projWin, bankTotal])
 
   const movesSorted = useMemo(() => {
     const r = [...movesChrono]
@@ -438,6 +475,48 @@ export default function ProjectionsPanel() {
         return r
     }
   }, [movesChrono, sortKey])
+
+  // Ledger diario: una fila por día (hoy → 31 dic) con apertura, flujo y cierre proyectado
+  const dailyRows: DailyRow[] = useMemo(() => {
+    const byDate = new Map<string, { inflow: number; outflow: number }>()
+    for (const m of movesChrono) {
+      const e = byDate.get(m.date) || { inflow: 0, outflow: 0 }
+      if (m.net >= 0) e.inflow += m.net
+      else e.outflow += -m.net
+      byDate.set(m.date, e)
+    }
+    const rows: DailyRow[] = []
+    let run = bankTotal
+    const d = new Date(today + 'T12:00:00')
+    const end = new Date(yearEnd + 'T12:00:00')
+    while (d <= end) {
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      const e = byDate.get(iso)
+      const inflow = e?.inflow || 0
+      const outflow = e?.outflow || 0
+      const opening = run
+      run = run + inflow - outflow
+      rows.push({
+        date: iso,
+        opening,
+        inflow,
+        outflow,
+        net: inflow - outflow,
+        closing: run,
+        health: run < 0 ? 'bad' : run < safetyFloor ? 'warn' : 'ok',
+      })
+      d.setDate(d.getDate() + 1)
+    }
+    return rows
+  }, [movesChrono, bankTotal, today, yearEnd, safetyFloor])
+
+  // Punto crítico: día con el balance proyectado más bajo
+  const criticalPt = useMemo(() => {
+    if (dailyRows.length === 0) return null
+    let m = dailyRows[0]
+    for (const r of dailyRows) if (r.closing < m.closing) m = r
+    return m
+  }, [dailyRows])
 
   if (loading) {
     return (
@@ -467,11 +546,19 @@ export default function ProjectionsPanel() {
       </p>
 
       {/* KPIs */}
-      <section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Kpi icon={IBar} label="Ingresos proyectados" value={money(winInc)} sub={`${winIncCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
         <Kpi icon={ICart} label="Gastos proyectados" value={money(winExp)} sub={`${winExpCount} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
         <Kpi icon={IDb} label="Balance bancario" value={money(bankTotal)} sub={`${accounts.length} cuentas · a hoy`} valueColor="text-slate-800" accent="#3b82f6" />
         <Kpi icon={IPct} label="Balance total" value={money(grandTotal)} sub="Banco + proy. − proy." valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
+        <Kpi
+          icon={IAlert}
+          label="Punto crítico"
+          value={criticalPt ? money(criticalPt.closing) : '—'}
+          sub={criticalPt ? `${fmtD(criticalPt.date)}${criticalPt.closing < safetyFloor ? ' · bajo mínimo' : ''}` : 'sin datos'}
+          valueColor={criticalPt && criticalPt.closing < safetyFloor ? 'text-red-600' : criticalPt && criticalPt.closing < 0 ? 'text-red-600' : 'text-slate-800'}
+          accent="#ef4444"
+        />
       </section>
 
       {/* Proyecciones — reglas con entrada en línea */}
@@ -745,6 +832,68 @@ export default function ProjectionsPanel() {
             <span className={`font-extrabold font-mono tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'}`}>
               Final {money(grandTotal)}
             </span>
+          </div>
+        </div>
+      </section>
+
+      {/* Ledger diario — flujo de caja día por día */}
+      <section className="mt-3">
+        <div className={card}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className={h3}>Flujo diario</h3>
+              <p className="mt-0.5 text-[11px] text-slate-400">Apertura + flujo del día = cierre proyectado · {fmtD(today)} → 31 dic {year}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                <input type="checkbox" checked={hideTransfers} onChange={(e) => setHideTr(e.target.checked)} className="size-3.5 rounded" />
+                Ocultar transfers
+              </label>
+              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                Mínimo $
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={safetyFloor}
+                  onChange={(e) => setFloor(Number(e.target.value))}
+                  title="Balance mínimo (safety floor)"
+                  className="w-24 rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-xs"
+                />
+              </label>
+            </div>
+          </div>
+          <div className="mt-2 max-h-[320px] overflow-auto rounded-lg border border-slate-100">
+            <table className="w-full min-w-[560px] border-collapse text-sm">
+              <thead className="sticky top-0 z-10 bg-white">
+                <tr className="text-left text-[11px] text-slate-400">
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Apertura</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Flujo del día</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Cierre proyectado</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-center font-medium">Salud</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyRows.map((r) => (
+                  <tr key={r.date} className={`border-t border-slate-100 ${r.health === 'bad' ? 'bg-red-50/60' : r.health === 'warn' ? 'bg-amber-50/50' : 'even:bg-slate-50/60'}`}>
+                    <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-slate-600">{num2(r.opening)}</td>
+                    <td className={`whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums ${r.net > 0 ? 'text-[#16a34a]' : r.net < 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                      {r.net === 0 ? '—' : `${r.net > 0 ? '+' : '−'}${num2(Math.abs(r.net))}`}
+                    </td>
+                    <td className={`whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums ${r.health === 'bad' ? 'text-red-600' : r.health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
+                      {num2(r.closing)}
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-1.5 text-center">
+                      <span
+                        title={r.health === 'bad' ? 'Bajo cero' : r.health === 'warn' ? 'Bajo el mínimo' : 'Saludable'}
+                        className={`inline-block size-2.5 rounded-full ${r.health === 'bad' ? 'bg-red-500' : r.health === 'warn' ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>

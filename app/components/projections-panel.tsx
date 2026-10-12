@@ -9,7 +9,6 @@ type Tx = { id: string; date: string; detail: string; debit: number; credit: num
 
 const SUMMARY_CACHE = 'proj-summary-v1'
 const MAIN_BANK_KEY = 'proj-main-bank'
-const OTHER_BAL_KEY = 'proj-other-bal'
 const SAFETY_FLOOR_KEY = 'proj-safety-floor'
 const HIDE_TR_KEY = 'proj-hide-transfers'
 const VIEW_KEY = 'proj-view'
@@ -150,7 +149,7 @@ function Kpi({
 const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
-type MoveRow = { key: string; date: string; label: string; sub: string; net: number; chronoBal: number }
+type MoveRow = { key: string; date: string; label: string; sub: string; net: number; chronoBal: number; bankBal: number }
 type DailyRow = { date: string; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
 
 // Categorías que son transferencias internas (misma definición que el Estado Bancario)
@@ -162,7 +161,6 @@ export default function ProjectionsPanel() {
   const [projected, setProjected] = useState<ProjItem[]>([])
   const [ruleItems, setRuleItems] = useState<RuleItem[]>([])
   const [mainBank, setMainBank] = useState<string>(DEFAULT_MAIN)
-  const [otherEdits, setOtherEdits] = useState<Record<string, string>>({})
   const [mainTxs, setMainTxs] = useState<Tx[]>([])
   const [sortKey, setSortKey] = useState('date-desc')
   const [safetyFloor, setSafetyFloor] = useState<number>(0)
@@ -184,8 +182,6 @@ export default function ProjectionsPanel() {
     try {
       const s = localStorage.getItem(MAIN_BANK_KEY)
       if (s) setMainBank(s)
-      const o = localStorage.getItem(OTHER_BAL_KEY)
-      if (o) setOtherEdits(JSON.parse(o) || {})
       const f = localStorage.getItem(SAFETY_FLOOR_KEY)
       if (f !== null && f !== '') setSafetyFloor(Number(f) || 0)
       const h = localStorage.getItem(HIDE_TR_KEY)
@@ -214,19 +210,6 @@ export default function ProjectionsPanel() {
   const pickMain = (name: string) => {
     setMainBank(name)
     try { localStorage.setItem(MAIN_BANK_KEY, name) } catch {}
-  }
-
-  const setOtherBal = (name: string, v: string) => {
-    setOtherEdits((prev) => {
-      const n = { ...prev, [name]: v }
-      try { localStorage.setItem(OTHER_BAL_KEY, JSON.stringify(n)) } catch {}
-      return n
-    })
-  }
-
-  const resetOtherBals = () => {
-    setOtherEdits({})
-    try { localStorage.removeItem(OTHER_BAL_KEY) } catch {}
   }
 
   const applySummary = (sj: any) => {
@@ -459,17 +442,10 @@ export default function ProjectionsPanel() {
     }
   })
 
-  // Balances: banco principal + otros (editables)
+  // Balances: siempre en vivo desde Plaid (current_balance) — sin edición manual
   const mainAcct = accounts.find((a) => a.name === effMain)
   const otherAccts = useMemo(() => accounts.filter((a) => a.name && a.name !== effMain), [accounts, effMain])
-  const bankVal = (a: Acct) => {
-    const raw = otherEdits[a.name]
-    if (raw !== undefined && raw !== '') {
-      const n = Number(raw)
-      return isNaN(n) ? 0 : n
-    }
-    return Number(a.current_balance) || 0
-  }
+  const bankVal = (a: Acct) => Number(a.current_balance) || 0
   const mainBal = mainAcct ? bankVal(mainAcct) : 0
   const othersTotal = otherAccts.reduce((s, a) => s + bankVal(a), 0)
   const bankTotal = mainBal + othersTotal
@@ -505,9 +481,11 @@ export default function ProjectionsPanel() {
       })),
     ].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
     let run = bankTotal
+    let runBank = bankTotal
     return arr.map((m) => {
       run += m.net
-      return { ...m, chronoBal: run }
+      if (m.key.startsWith('tx-')) runBank += m.net
+      return { ...m, chronoBal: run, bankBal: runBank }
     })
   }, [visibleTxs, projWin, bankTotal])
 
@@ -899,16 +877,64 @@ export default function ProjectionsPanel() {
             </div>
           </div>
 
-          <div className="mt-2 max-h-[320px] overflow-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[680px] border-collapse text-sm">
+          {/* Móvil: formato compacto */}
+          <div className="mt-2 max-h-[320px] overflow-y-auto overscroll-contain rounded-lg border border-slate-100 md:hidden">
+            <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detalle</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Ingreso</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Gasto</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Balance</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-center font-medium" title="Salud del día">●</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Descripción</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {movesSorted.length === 0 ? (
+                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — añade proyecciones arriba.</td></tr>
+                ) : (
+                  movesSorted.map((r) => {
+                    const isProj = r.key.startsWith('pj-')
+                    const inc = r.net > 0 ? r.net : 0
+                    const exp = r.net < 0 ? -r.net : 0
+                    const health = r.chronoBal < 0 ? 'bad' : r.chronoBal < safetyFloor ? 'warn' : 'ok'
+                    return (
+                      <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'}`}>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-top tabular-nums text-slate-500">{fmtD(r.date)}</td>
+                        <td className="min-w-0 px-2 py-1.5 align-top">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`line-clamp-2 text-sm font-semibold leading-snug ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{r.label}</span>
+                            {isProj && (
+                              <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
+                            )}
+                          </div>
+                          <div className="truncate text-xs text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right align-top">
+                          <div className={`font-semibold tabular-nums ${inc > 0 ? 'text-[#16a34a]' : exp > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                            {inc > 0 ? `+${num2(inc)}` : exp > 0 ? `−${num2(exp)}` : '—'}
+                          </div>
+                          <div className={`font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-900'}`}>
+                            {num2(r.chronoBal)}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Computadora: register completo */}
+          <div className="mt-2 hidden max-h-[480px] overflow-auto overscroll-contain rounded-lg border border-slate-100 md:block">
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-10 bg-white">
+                <tr className="text-left text-[11px] text-slate-400">
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Fecha</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Vendedor</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance banco</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Gasto</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Ingreso</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance proyectado</th>
                 </tr>
               </thead>
               <tbody>
@@ -921,31 +947,26 @@ export default function ProjectionsPanel() {
                     const exp = r.net < 0 ? -r.net : 0
                     const health = r.chronoBal < 0 ? 'bad' : r.chronoBal < safetyFloor ? 'warn' : 'ok'
                     return (
-                      <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'}`}>
-                        <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex max-w-[240px] items-center gap-1.5">
-                            <span className={`truncate font-medium ${isProj ? 'italic text-slate-600' : 'text-slate-700'}`}>{r.label}</span>
+                      <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'} hover:bg-blue-50/40`}>
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{fmtD(r.date)}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`font-semibold ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{r.label}</span>
                             {isProj && (
                               <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
                             )}
                           </div>
                           <div className="text-[10px] text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
                         </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-[#16a34a]">
-                          {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
-                        </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-red-500">
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{num2(r.bankBal)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-red-500">
                           {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className={`whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
-                          {num2(r.chronoBal)}
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-[#16a34a]">
+                          {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-center">
-                          <span
-                            title={health === 'bad' ? 'Bajo cero' : health === 'warn' ? 'Bajo el mínimo' : 'Saludable'}
-                            className={`inline-block size-2.5 rounded-full ${health === 'bad' ? 'bg-red-500' : health === 'warn' ? 'bg-amber-400' : 'bg-emerald-500'}`}
-                          />
+                        <td className={`whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
+                          {num2(r.chronoBal)}
                         </td>
                       </tr>
                     )
@@ -1000,7 +1021,8 @@ export default function ProjectionsPanel() {
             </div>
           </div>
 
-          <div className="mt-2 max-h-[320px] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white">
+          {/* Móvil: formato compacto */}
+          <div className="mt-2 max-h-[320px] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white md:hidden">
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
@@ -1037,6 +1059,46 @@ export default function ProjectionsPanel() {
               </tbody>
             </table>
           </div>
+
+          {/* Computadora: register completo */}
+          <div className="mt-2 hidden max-h-[480px] overflow-auto overscroll-contain rounded-lg border border-slate-200 bg-white md:block">
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-10 bg-white">
+                <tr className="text-left text-[11px] text-slate-400">
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Fecha</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Vendedor</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Categoría</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Ingreso</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Gasto</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bancoRows.length === 0 ? (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
+                ) : (
+                  bancoRows.map((t) => {
+                    const inc = Number(t.credit) || 0
+                    const exp = Number(t.debit) || 0
+                    return (
+                      <tr key={t.id} className="border-t border-slate-100 even:bg-slate-50/60 hover:bg-blue-50/40">
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{fmtD(t.date)}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-800">{t.detail}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{t.category}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-[#16a34a]">
+                          {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-red-500">
+                          {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums text-slate-900">{num2(t.bal)}</td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-t-2 border-[#3b82f6] bg-blue-50/60 px-4 py-2 text-sm">
             <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
             <span className="font-semibold text-slate-500">
@@ -1053,72 +1115,6 @@ export default function ProjectionsPanel() {
       )}
 
 
-      {/* Cajita de bancos — balances a hoy, editables, afectan la proyección */}
-      <section className="mt-3">
-        <div className={card}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className={h3}>Bancos</h3>
-              <p className="mt-0.5 text-[11px] text-slate-400">Balances a hoy — afectan el balance inicial de la proyección.</p>
-            </div>
-            <button onClick={resetOtherBals} className="text-[11px] text-slate-400 underline hover:text-slate-600">restablecer balances</button>
-          </div>
-          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[420px] border-collapse text-sm">
-              <thead>
-                <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Banco</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mainAcct && (
-                  <tr className="border-t-2 border-[#3b82f6] bg-blue-50/60">
-                    <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-600">{fmtD(today)}</td>
-                    <td className="px-2 py-2 font-bold text-slate-800">
-                      {shortBank(mainAcct)}
-                      <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">principal</span>
-                    </td>
-                    <td className="px-2 py-2 text-right">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={otherEdits[mainAcct.name] ?? ''}
-                        placeholder={num2(Number(mainAcct.current_balance) || 0)}
-                        onChange={(e) => setOtherBal(mainAcct.name, e.target.value)}
-                        title="Balance a hoy (editable)"
-                        className="w-28 rounded border border-slate-200 bg-white px-1 py-0.5 text-right font-mono text-sm font-bold text-slate-800"
-                      />
-                    </td>
-                  </tr>
-                )}
-                {otherAccts.map((a) => (
-                  <tr key={a.name} className="border-t border-slate-100 even:bg-slate-50/60">
-                    <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(today)}</td>
-                    <td className="px-2 py-1.5 font-medium text-slate-600">{shortBank(a)}</td>
-                    <td className="px-2 py-1.5 text-right">
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={otherEdits[a.name] ?? ''}
-                        placeholder={num2(Number(a.current_balance) || 0)}
-                        onChange={(e) => setOtherBal(a.name, e.target.value)}
-                        title="Balance a hoy (editable)"
-                        className="w-28 rounded border border-slate-200 bg-white px-1 py-0.5 text-right font-mono text-sm text-slate-700"
-                      />
-                    </td>
-                  </tr>
-                ))}
-                <tr className="border-t-2 border-slate-200 bg-white">
-                  <td colSpan={2} className="px-2 py-1.5 text-right text-[11px] font-semibold text-slate-500">Total bancos</td>
-                  <td className="whitespace-nowrap px-2 py-1.5 text-right font-extrabold tabular-nums text-slate-900">{money(bankTotal)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
     </div>
   )
 }

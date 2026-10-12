@@ -972,7 +972,7 @@ export default function ProjectionsPanel() {
 
       {view === 'banco' && (
       <section className="mt-3">
-        <div className={`${card} flex flex-col`}>
+        <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3">
               <h3 className={h3}>Banco · {mainAcct ? shortBank(mainAcct) : ''}</h3>
@@ -1000,7 +1000,7 @@ export default function ProjectionsPanel() {
             </div>
           </div>
 
-          <div className="mt-2 max-h-[320px] overflow-auto overscroll-contain rounded-lg border border-slate-100">
+          <div className="mt-2 max-h-[320px] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white">
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
@@ -1019,12 +1019,12 @@ export default function ProjectionsPanel() {
                     const isInc = inc > 0
                     return (
                       <tr key={t.id} className="border-t border-slate-100 even:bg-slate-50/60">
-                        <td className="whitespace-nowrap px-2 py-2 align-top tabular-nums text-slate-500">{fmtD(t.date)}</td>
-                        <td className="max-w-[260px] px-2 py-2 align-top">
-                          <div className="truncate font-medium text-slate-700">{t.detail}</div>
-                          <div className="truncate text-[11px] text-slate-400">{t.category}</div>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-top tabular-nums text-slate-500">{fmtD(t.date)}</td>
+                        <td className="min-w-0 px-2 py-1.5 align-top">
+                          <div className="line-clamp-2 text-sm font-semibold leading-snug text-slate-800">{t.detail}</div>
+                          <div className="truncate text-xs text-slate-400">{t.category}</div>
                         </td>
-                        <td className="whitespace-nowrap px-2 py-2 text-right align-top">
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right align-top">
                           <div className={`font-semibold tabular-nums ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
                             {isInc ? `+${num2(inc)}` : exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
                           </div>

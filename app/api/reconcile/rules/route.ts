@@ -175,7 +175,8 @@ export async function POST(req: NextRequest) {
     const frequency = String(values?.frequency || rule.frequency || 'Mensual')
     const endDate = cleanDate(values?.end_date)
     const cat = String(values?.category || '').trim()
-    if (!concept || amount <= 0) {
+    // Monto 0 permitido: día programado sin trabajo (la fila en 0 queda visible).
+    if (!concept || Number.isNaN(amount)) {
       return NextResponse.json({ error: 'Concepto y monto requeridos' }, { status: 400 })
     }
 

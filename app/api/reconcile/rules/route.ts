@@ -1,13 +1,16 @@
 // app/api/reconcile/rules/route.ts
 // Edición de proyecciones guardadas con alcance (scope).
-// POST { ruleId, pivot, scope: 'solo'|'atras'|'adelante'|'todas', values }
-//   pivot: 'YYYY-MM-DD' — ocurrencia que se está editando.
-//   scope:
-//     'solo'     -> solo esa ocurrencia cambia (se parte la serie: un pago único + resto intacto)
-//     'atras'    -> esta y las pasadas toman los valores nuevos; las futuras conservan los viejos
-//     'adelante' -> esta y las futuras toman los valores nuevos; las pasadas conservan los viejos
-//     'todas'    -> se actualiza la regla completa
-//   values: { concept, amount, type: 'ingreso'|'gasto', frequency, pay_day, end_date, category }
+// POST { action?, ruleId, pivot, scope, values }
+//   action 'delete-occurrence': borra UNA ocurrencia (solo esa fecha); la regla
+//     sigue generando las demás. Si era 'Un solo pago' (o era la única), borra la regla.
+//   action omitida (edición):
+//     pivot: 'YYYY-MM-DD' — ocurrencia que se está editando.
+//     scope:
+//       'solo'     -> solo esa ocurrencia cambia (se parte la serie: un pago único + resto intacto)
+//       'atras'    -> esta y las pasadas toman los valores nuevos; las futuras conservan los viejos
+//       'adelante' -> esta y las futuras toman los valores nuevos; las pasadas conservan los viejos
+//       'todas'    -> se actualiza la regla completa
+//     values: { concept, amount, type: 'ingreso'|'gasto', frequency, pay_day, end_date, category }
 // La división de la serie se hace con end_date / pay_day (columnas existentes).
 // NUNCA toca bank_transactions: solo proyecciones.
 import { NextRequest, NextResponse } from 'next/server'
@@ -104,20 +107,67 @@ export async function POST(req: NextRequest) {
   try {
     const sb = supabaseServer()
     const b = await req.json()
-    const { ruleId, pivot, scope, values } = b as {
+    const { ruleId, pivot, scope, values, action } = b as {
       ruleId: string
       pivot: string
       scope: 'solo' | 'atras' | 'adelante' | 'todas'
       values: any
-    }
-    if (!ruleId || !['solo', 'atras', 'adelante', 'todas'].includes(scope)) {
-      return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 })
+      action?: string
     }
     const D = cleanDate(pivot)
-    if (!D) return NextResponse.json({ error: 'Fecha inválida' }, { status: 400 })
+    if (!ruleId || !D) {
+      return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 })
+    }
 
     const { data: rule, error: e0 } = await sb.from(RP).select('*').eq('id', ruleId).single()
     if (e0 || !rule) return NextResponse.json({ error: 'Regla no encontrada' }, { status: 404 })
+    const rid = String(rule.id)
+
+    // Borrar una sola ocurrencia: se parte la serie sin reemplazo; la regla sigue generando el resto.
+    if (action === 'delete-occurrence') {
+      const freq = String(rule.frequency || '')
+      if (freq === 'Un solo pago') {
+        const { error: eDel } = await sb.from(RP).delete().eq('id', rid)
+        if (eDel) throw new Error(eDel.message)
+        return NextResponse.json({ ok: true, deleted: 'rule' })
+      }
+      const oldR = {
+        concept: String(rule.concept || ''),
+        amount: Math.abs(Number(rule.amount) || 0),
+        type: rule.type === 'ingreso' ? 'ingreso' : 'gasto',
+        frequency: freq,
+        pay_day: String(rule.pay_day || ''),
+        end_date: cleanDate(rule.end_date),
+        category: rule.category ? String(rule.category) : undefined,
+      }
+      const { prev: Dprev, next: Dnext } = neighbors(oldR, D)
+      if (!Dprev && !Dnext) {
+        const { error: eDel } = await sb.from(RP).delete().eq('id', rid)
+        if (eDel) throw new Error(eDel.message)
+        return NextResponse.json({ ok: true, deleted: 'rule' })
+      }
+      const keepVals: any = {
+        concept: oldR.concept,
+        amount: oldR.amount,
+        type: oldR.type,
+        frequency: oldR.frequency,
+        end_date: oldR.end_date,
+      }
+      if (oldR.category) keepVals.category = oldR.category
+      if (Dprev && Dnext) {
+        await updateRule(sb, rid, { end_date: Dprev })
+        await insertRule(sb, { ...keepVals, pay_day: Dnext })
+      } else if (Dprev) {
+        await updateRule(sb, rid, { end_date: Dprev })
+      } else {
+        await updateRule(sb, rid, { pay_day: Dnext })
+      }
+      return NextResponse.json({ ok: true, deleted: 'occurrence' })
+    }
+
+    if (!['solo', 'atras', 'adelante', 'todas'].includes(scope)) {
+      return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 })
+    }
 
     const concept = String(values?.concept || '').trim()
     const amount = Math.abs(Number(values?.amount) || 0)
@@ -138,8 +188,6 @@ export async function POST(req: NextRequest) {
       end_date: cleanDate(rule.end_date),
       category: rule.category ? String(rule.category) : undefined,
     }
-    const rid = String(rule.id)
-
     // Valores nuevos (lo que el usuario dejó en la fila de entrada).
     const newVals: any = { concept, amount, type, frequency, end_date: endDate }
     if (cat) newVals.category = cat

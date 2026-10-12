@@ -12,6 +12,7 @@ const MAIN_BANK_KEY = 'proj-main-bank'
 const OTHER_BAL_KEY = 'proj-other-bal'
 const SAFETY_FLOOR_KEY = 'proj-safety-floor'
 const HIDE_TR_KEY = 'proj-hide-transfers'
+const VIEW_KEY = 'proj-view'
 const DEFAULT_MAIN = 'Access Account …6393'
 
 const num2 = (v: number) =>
@@ -166,6 +167,7 @@ export default function ProjectionsPanel() {
   const [sortKey, setSortKey] = useState('date-desc')
   const [safetyFloor, setSafetyFloor] = useState<number>(0)
   const [hideTransfers, setHideTransfers] = useState<boolean>(true)
+  const [view, setView] = useState<'banco' | 'proyecciones'>('proyecciones')
   const [newRule, setNewRule] = useState<null | {
     date: string; detail: string; ptype: string; amount: string; frequency: string; end_date: string
   }>(null)
@@ -188,6 +190,8 @@ export default function ProjectionsPanel() {
       if (f !== null && f !== '') setSafetyFloor(Number(f) || 0)
       const h = localStorage.getItem(HIDE_TR_KEY)
       if (h !== null) setHideTransfers(h === '1')
+      const v = localStorage.getItem(VIEW_KEY)
+      if (v === 'banco' || v === 'proyecciones') setView(v)
     } catch {}
   }, [])
 
@@ -200,6 +204,11 @@ export default function ProjectionsPanel() {
   const setHideTr = (v: boolean) => {
     setHideTransfers(v)
     try { localStorage.setItem(HIDE_TR_KEY, v ? '1' : '0') } catch {}
+  }
+
+  const pickView = (v: 'banco' | 'proyecciones') => {
+    setView(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch {}
   }
 
   const pickMain = (name: string) => {
@@ -476,6 +485,23 @@ export default function ProjectionsPanel() {
     }
   }, [movesChrono, sortKey])
 
+  // Vista BANCO: solo transacciones reales, con balance corrido (estilo statement)
+  const bancoRows = useMemo(() => {
+    const arr = [...visibleTxs].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
+    // balance corrido cronológico (de atrás hacia adelante) y luego se muestra más reciente arriba
+    const chrono = [...visibleTxs].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    const balById = new Map<string, number>()
+    let run = bankTotal
+    for (const t of chrono) {
+      run += (Number(t.credit) || 0) - (Number(t.debit) || 0)
+      balById.set(t.id, run)
+    }
+    return arr.map((t) => ({ ...t, bal: balById.get(t.id) ?? bankTotal }))
+  }, [visibleTxs, bankTotal])
+
+  const bancoInc = useMemo(() => visibleTxs.reduce((s, t) => s + (Number(t.credit) || 0), 0), [visibleTxs])
+  const bancoExp = useMemo(() => visibleTxs.reduce((s, t) => s + (Number(t.debit) || 0), 0), [visibleTxs])
+
   // Ledger diario: una fila por día (hoy → 31 dic) con apertura, flujo y cierre proyectado
   const dailyRows: DailyRow[] = useMemo(() => {
     const byDate = new Map<string, { inflow: number; outflow: number }>()
@@ -545,6 +571,30 @@ export default function ProjectionsPanel() {
         {fmtD(today)} → 31 dic {year} · banco principal + proyecciones.
       </p>
 
+      {/* Dos vistas: Banco | Proyecciones */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => pickView('banco')}
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold transition ${
+            view === 'banco'
+              ? 'bg-[#1c3d5e] text-white shadow-md'
+              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <span className="text-base">🏦</span> Banco
+        </button>
+        <button
+          onClick={() => pickView('proyecciones')}
+          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold transition ${
+            view === 'proyecciones'
+              ? 'bg-[#1c3d5e] text-white shadow-md'
+              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <span className="text-base">🔮</span> Proyecciones
+        </button>
+      </div>
+
       {/* KPIs */}
       <section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Kpi icon={IBar} label="Ingresos proyectados" value={money(winInc)} sub={`${winIncCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
@@ -561,6 +611,8 @@ export default function ProjectionsPanel() {
         />
       </section>
 
+      {view === 'proyecciones' && (
+      <>
       {/* Proyecciones — reglas con entrada en línea */}
       <section className="mt-3">
         <div className={card}>
@@ -748,21 +800,21 @@ export default function ProjectionsPanel() {
         </div>
       </section>
 
-      {/* Registro de proyección — banco principal */}
+      {/* UN SOLO register condensado: reales + proyectadas, marcadas diferente */}
       <section className="mt-3">
         <div className={`${card} flex flex-col`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3">
-              <h3 className={h3}>Registro de proyección</h3>
-              <p className="text-[11px] text-slate-400">{fmtD(today)} → 31 dic {year} · solo banco principal</p>
+              <h3 className={h3}>Registro</h3>
+              <p className="text-[11px] text-slate-400">{fmtD(today)} → 31 dic {year} · reales + proyectadas</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="text-[11px] font-semibold text-slate-500">Banco principal</label>
+              <label className="text-[11px] font-semibold text-slate-500">Banco</label>
               <select
                 value={effMain}
                 onChange={(e) => pickMain(e.target.value)}
                 title="Banco principal para proyecciones"
-                className="max-w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                className="max-w-[180px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
               >
                 {accounts.map((a) => (
                   <option key={a.name} value={a.name}>{shortBank(a)}</option>
@@ -780,44 +832,78 @@ export default function ProjectionsPanel() {
                 <option value="amount-desc">Monto ↓</option>
                 <option value="amount-asc">Monto ↑</option>
               </select>
+              <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                <input type="checkbox" checked={hideTransfers} onChange={(e) => setHideTr(e.target.checked)} className="size-3.5 rounded" />
+                Ocultar transfers
+              </label>
+              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
+                Mínimo $
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={safetyFloor}
+                  onChange={(e) => setFloor(Number(e.target.value))}
+                  title="Balance mínimo (safety floor)"
+                  className="w-20 rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-xs"
+                />
+              </label>
               <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
                 {movesSorted.length} movs
               </span>
             </div>
           </div>
 
-          <div className="mt-2 max-h-[300px] overflow-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[760px] border-collapse text-sm">
+          <div className="mt-2 max-h-[320px] overflow-auto rounded-lg border border-slate-100">
+            <table className="w-full min-w-[680px] border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Banco / Detalle</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Tipo</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detalle</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Ingreso</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Gasto</th>
                   <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Balance</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-center font-medium" title="Salud del día">●</th>
                 </tr>
               </thead>
               <tbody>
-                {/* Movimientos del banco principal */}
                 {movesSorted.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos proyectados — añade proyecciones arriba.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — añade proyecciones arriba.</td></tr>
                 ) : (
-                  movesSorted.map((r) => (
-                    <tr key={r.key} className="border-t border-slate-100 even:bg-slate-50/60">
-                      <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
-                      <td className="px-2 py-1.5">
-                        <div className="max-w-[240px] truncate font-medium text-slate-700">{r.label}</div>
-                        <div className="text-[10px] text-slate-400">{r.sub}</div>
-                      </td>
-                      <td className={`whitespace-nowrap px-2 py-1.5 text-xs font-semibold ${r.net >= 0 ? 'text-[#16a34a]' : 'text-red-500'}`}>
-                        {r.net >= 0 ? 'Ingreso' : 'Gasto'}
-                      </td>
-                      <td className={`whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums ${r.net >= 0 ? 'text-[#16a34a]' : 'text-slate-800'}`}>
-                        {r.net >= 0 ? '+' : '−'}{num2(Math.abs(r.net))}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-slate-600">{num2(r.chronoBal)}</td>
-                    </tr>
-                  ))
+                  movesSorted.map((r) => {
+                    const isProj = r.key.startsWith('pj-')
+                    const inc = r.net > 0 ? r.net : 0
+                    const exp = r.net < 0 ? -r.net : 0
+                    const health = r.chronoBal < 0 ? 'bad' : r.chronoBal < safetyFloor ? 'warn' : 'ok'
+                    return (
+                      <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'}`}>
+                        <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
+                        <td className="px-2 py-1.5">
+                          <div className="flex max-w-[240px] items-center gap-1.5">
+                            <span className={`truncate font-medium ${isProj ? 'italic text-slate-600' : 'text-slate-700'}`}>{r.label}</span>
+                            {isProj && (
+                              <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-[#16a34a]">
+                          {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-red-500">
+                          {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className={`whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
+                          {num2(r.chronoBal)}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-center">
+                          <span
+                            title={health === 'bad' ? 'Bajo cero' : health === 'warn' ? 'Bajo el mínimo' : 'Saludable'}
+                            className={`inline-block size-2.5 rounded-full ${health === 'bad' ? 'bg-red-500' : health === 'warn' ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
             </table>
@@ -835,68 +921,92 @@ export default function ProjectionsPanel() {
           </div>
         </div>
       </section>
+      </>
+      )}
 
-      {/* Ledger diario — flujo de caja día por día */}
+      {view === 'banco' && (
       <section className="mt-3">
-        <div className={card}>
+        <div className={`${card} flex flex-col`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className={h3}>Flujo diario</h3>
-              <p className="mt-0.5 text-[11px] text-slate-400">Apertura + flujo del día = cierre proyectado · {fmtD(today)} → 31 dic {year}</p>
+            <div className="flex flex-wrap items-baseline gap-x-3">
+              <h3 className={h3}>Banco · {mainAcct ? shortBank(mainAcct) : ''}</h3>
+              <p className="text-[11px] text-slate-400">Transacciones reales · {fmtD(today)} → 31 dic {year}</p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="text-[11px] font-semibold text-slate-500">Banco</label>
+              <select
+                value={effMain}
+                onChange={(e) => pickMain(e.target.value)}
+                title="Banco para ver"
+                className="max-w-[180px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+              >
+                {accounts.map((a) => (
+                  <option key={a.name} value={a.name}>{shortBank(a)}</option>
+                ))}
+              </select>
               <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-500">
                 <input type="checkbox" checked={hideTransfers} onChange={(e) => setHideTr(e.target.checked)} className="size-3.5 rounded" />
                 Ocultar transfers
               </label>
-              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
-                Mínimo $
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={safetyFloor}
-                  onChange={(e) => setFloor(Number(e.target.value))}
-                  title="Balance mínimo (safety floor)"
-                  className="w-24 rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-xs"
-                />
-              </label>
+              <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
+                {bancoRows.length} movs
+              </span>
             </div>
           </div>
+
           <div className="mt-2 max-h-[320px] overflow-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[560px] border-collapse text-sm">
+            <table className="w-full min-w-[640px] border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Apertura</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Flujo del día</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Cierre proyectado</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-center font-medium">Salud</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detalle</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Categoría</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Ingreso</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Gasto</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Balance</th>
                 </tr>
               </thead>
               <tbody>
-                {dailyRows.map((r) => (
-                  <tr key={r.date} className={`border-t border-slate-100 ${r.health === 'bad' ? 'bg-red-50/60' : r.health === 'warn' ? 'bg-amber-50/50' : 'even:bg-slate-50/60'}`}>
-                    <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(r.date)}</td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-slate-600">{num2(r.opening)}</td>
-                    <td className={`whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums ${r.net > 0 ? 'text-[#16a34a]' : r.net < 0 ? 'text-red-500' : 'text-slate-300'}`}>
-                      {r.net === 0 ? '—' : `${r.net > 0 ? '+' : '−'}${num2(Math.abs(r.net))}`}
-                    </td>
-                    <td className={`whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums ${r.health === 'bad' ? 'text-red-600' : r.health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
-                      {num2(r.closing)}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-center">
-                      <span
-                        title={r.health === 'bad' ? 'Bajo cero' : r.health === 'warn' ? 'Bajo el mínimo' : 'Saludable'}
-                        className={`inline-block size-2.5 rounded-full ${r.health === 'bad' ? 'bg-red-500' : r.health === 'warn' ? 'bg-amber-400' : 'bg-emerald-500'}`}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {bancoRows.length === 0 ? (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
+                ) : (
+                  bancoRows.map((t) => {
+                    const inc = Number(t.credit) || 0
+                    const exp = Number(t.debit) || 0
+                    return (
+                      <tr key={t.id} className="border-t border-slate-100 even:bg-slate-50/60">
+                        <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(t.date)}</td>
+                        <td className="max-w-[240px] truncate px-2 py-1.5 font-medium text-slate-700">{t.detail}</td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-400">{t.category}</td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-[#16a34a]">
+                          {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-red-500">
+                          {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums text-slate-800">{num2(t.bal)}</td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
           </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-t-2 border-[#3b82f6] bg-blue-50/60 px-4 py-2 text-sm">
+            <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
+            <span className="font-semibold text-slate-500">
+              <span className="text-[#16a34a]">+{num2(bancoInc)}</span>
+              {' · '}
+              <span className="text-red-500">−{num2(bancoExp)}</span>
+            </span>
+            <span className={`font-extrabold font-mono tabular-nums ${bankTotal + bancoInc - bancoExp < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+              Final {money(bankTotal + bancoInc - bancoExp)}
+            </span>
+          </div>
         </div>
       </section>
+      )}
+
 
       {/* Cajita de bancos — balances a hoy, editables, afectan la proyección */}
       <section className="mt-3">

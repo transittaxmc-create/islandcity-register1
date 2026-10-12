@@ -162,7 +162,7 @@ function Kpi({
 const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
-type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; chronoBal: number; bankBal: number }
+type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; chronoBal: number; bankBal: number; ruleId: string | null }
 type DailyRow = { date: string; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
 
 // Categorías que son transferencias internas (misma definición que el Estado Bancario)
@@ -188,6 +188,20 @@ export default function ProjectionsPanel() {
   const yearEnd = `${year}-12-31`
   const emptyEntry = { date: today, detail: '', category: 'Proyección', inc: '', exp: '', frequency: 'Mensual', end_date: '' }
   const [entry, setEntry] = useState({ ...emptyEntry })
+
+  // Edición de proyección guardada: se carga en la primera fila; al guardar se pregunta el alcance.
+  const [editing, setEditing] = useState<{ ruleId: string; occurrenceDate: string; frequency: string } | null>(null)
+  const [scopeAsk, setScopeAsk] = useState(false)
+  // Listas de categorías y vendedores (Ajustes → Cuentas y bancos) para los dropdowns.
+  const [catsList, setCatsList] = useState<string[]>([])
+  const [vendorsList, setVendorsList] = useState<string[]>([])
+  // Modo "+ Añadir nuevo/a": el dropdown se vuelve input ahí mismo en la fila.
+  const [newCatMode, setNewCatMode] = useState(false)
+  const [newCat, setNewCat] = useState('')
+  const [newVenMode, setNewVenMode] = useState(false)
+  const [newVen, setNewVen] = useState('')
+  const NEW_CAT = '__nueva_categoria__'
+  const NEW_VEN = '__nuevo_vendedor__'
 
   // Preferencias guardadas: banco principal + balances corregidos + mínimo + ocultar transfers
   useEffect(() => {
@@ -251,31 +265,128 @@ export default function ProjectionsPanel() {
     } catch {}
   }
 
-  const commitEntry = async () => {
+  // Guarda una categoría/vendedor nuevo en su lista (Ajustes → Cuentas y bancos) para que salga en el dropdown la próxima vez.
+  const persistList = async (list: 'categories' | 'vendors', name: string) => {
+    const n = name.trim()
+    if (!n) return
+    if (list === 'categories' && n === 'Proyección') return
+    const cur = list === 'categories' ? catsList : vendorsList
+    if (cur.some((c) => c.toLowerCase() === n.toLowerCase())) return
+    try {
+      const j = await fetch('/api/reconcile/lists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ list, name: n }),
+      }).then((r) => r.json())
+      const finalName = j?.item?.name ? String(j.item.name) : n
+      const upd = (prev: string[]) => (prev.some((c) => c.toLowerCase() === finalName.toLowerCase()) ? prev : [...prev, finalName])
+      if (list === 'categories') setCatsList(upd)
+      else setVendorsList(upd)
+    } catch {}
+  }
+
+  const cancelEdit = () => {
+    setEditing(null)
+    setScopeAsk(false)
+    setNewCatMode(false)
+    setNewVenMode(false)
+    setNewCat('')
+    setNewVen('')
+    setEntry({ ...emptyEntry, date: today })
+  }
+
+  const nextOccurrence = (ruleId: string) => {
+    const ds = projected
+      .filter((p) => String(p.rule_id) === String(ruleId) && p.date >= today)
+      .map((p) => p.date)
+      .sort()
+    return ds[0] || today
+  }
+
+  // Tocar una proyección la carga en la primera fila en modo edición.
+  const startEdit = (ruleId: string, occurrenceDate: string) => {
+    const r = ruleItems.find((x) => String(x.id) === String(ruleId))
+    if (!r || ruleBusy) return
+    const isInc = String(r.type || '').toLowerCase() === 'ingreso'
+    setEntry({
+      date: occurrenceDate,
+      detail: r.concept || '',
+      category: r.category || 'Proyección',
+      inc: isInc ? String(r.amount) : '',
+      exp: !isInc ? String(r.amount) : '',
+      frequency: r.frequency || 'Mensual',
+      end_date: r.end_date || '',
+    })
+    setNewCatMode(false)
+    setNewVenMode(false)
+    setNewCat('')
+    setNewVen('')
+    setScopeAsk(false)
+    setEditing({ ruleId: String(r.id), occurrenceDate, frequency: r.frequency || '' })
+  }
+
+  const commitEntry = async (scope?: 'solo' | 'atras' | 'adelante' | 'todas') => {
     if (ruleBusy) return
+    // Resolver vendedor y categoría (incluye los recién creados con "+ Añadir").
+    const useNewVen = newVenMode && newVen.trim().length > 0
+    const useNewCat = newCatMode && newCat.trim().length > 0
+    if (newVenMode && !useNewVen) setNewVenMode(false)
+    if (newCatMode && !useNewCat) setNewCatMode(false)
+    const venName = (useNewVen ? newVen : entry.detail).trim()
+    const catName = (useNewCat ? newCat : entry.category).trim() || 'Proyección'
     const inc = Math.abs(Number(entry.inc) || 0)
     const exp = Math.abs(Number(entry.exp) || 0)
     const amount = inc > 0 ? inc : exp
-    if (!entry.detail.trim() || amount <= 0 || !entry.date) return
+    if (!venName || amount <= 0 || !entry.date) return
     setRuleBusy(true)
     try {
+      await persistList('categories', catName)
+      await persistList('vendors', venName)
       const isInc = inc > 0
-      const res = await fetch('/api/reconcile/data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          entry_type: 'proyectado',
-          date: entry.date,
-          detail: entry.detail.trim(),
-          category: entry.category || 'Proyección',
-          frequency: entry.frequency,
-          debit: isInc ? 0 : amount,
-          credit: isInc ? amount : 0,
-          end_date: entry.end_date || null,
-        }),
-      }).then((r) => r.json())
-      if (res?.error) throw new Error(res.error)
-      setEntry({ ...emptyEntry, date: today })
+      if (editing) {
+        // En edición con regla recurrente, primero se pregunta el alcance.
+        if (editing.frequency !== 'Un solo pago' && !scope) {
+          setScopeAsk(true)
+          setRuleBusy(false)
+          return
+        }
+        const res = await fetch('/api/reconcile/rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ruleId: editing.ruleId,
+            pivot: editing.occurrenceDate,
+            scope: scope || 'todas',
+            values: {
+              concept: venName,
+              amount,
+              type: isInc ? 'ingreso' : 'gasto',
+              frequency: entry.frequency,
+              pay_day: entry.date,
+              end_date: entry.end_date || null,
+              category: catName,
+            },
+          }),
+        }).then((r) => r.json())
+        if (res?.error) throw new Error(res.error)
+      } else {
+        const res = await fetch('/api/reconcile/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entry_type: 'proyectado',
+            date: entry.date,
+            detail: venName,
+            category: catName,
+            frequency: entry.frequency,
+            debit: isInc ? 0 : amount,
+            credit: isInc ? amount : 0,
+            end_date: entry.end_date || null,
+          }),
+        }).then((r) => r.json())
+        if (res?.error) throw new Error(res.error)
+      }
+      cancelEdit()
       await refreshSummary()
     } catch {
       // keep the form open so nothing is lost
@@ -283,6 +394,89 @@ export default function ProjectionsPanel() {
       setRuleBusy(false)
     }
   }
+
+  // Listas de categorías y vendedores para los dropdowns de la primera fila.
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const j = await fetch('/api/reconcile/lists', { cache: 'no-store' }).then((r) => r.json())
+        if (j && !j.error) {
+          setCatsList(((j.categories || []) as any[]).map((x) => String(x.name)).filter(Boolean))
+          setVendorsList(((j.vendors || []) as any[]).map((x) => String(x.name)).filter(Boolean))
+        }
+      } catch {}
+    })()
+  }, [])
+
+  const catOptions = useMemo(() => {
+    const base = ['Proyección', ...catsList, ...CATS.filter((c) => c !== 'Proyección' && !catsList.includes(c))]
+    const uniq = [...new Set(base)]
+    if (editing && entry.category && !uniq.includes(entry.category)) uniq.push(entry.category)
+    return uniq
+  }, [catsList, editing, entry.category])
+
+  const venOptions = useMemo(() => {
+    const fromRules = ruleItems.map((r) => String(r.concept || '').trim()).filter(Boolean)
+    const uniq = [...new Set([...vendorsList, ...fromRules])]
+    uniq.sort((a, b) => a.localeCompare(b, 'es'))
+    if (editing && entry.detail.trim() && !uniq.includes(entry.detail.trim())) uniq.push(entry.detail.trim())
+    return uniq
+  }, [vendorsList, ruleItems, editing, entry.detail])
+
+  // Vendedor: dropdown con "+ Añadir nuevo vendedor" que se vuelve input ahí mismo.
+  const vendorField = (cls: string, placeholder: string) =>
+    newVenMode ? (
+      <input
+        value={newVen}
+        onChange={(e) => setNewVen(e.target.value)}
+        placeholder={placeholder}
+        autoFocus
+        title="Nuevo vendedor"
+        className={cls}
+      />
+    ) : (
+      <select
+        value={entry.detail}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v === NEW_VEN) { setNewVenMode(true); setNewVen('') }
+          else setEntry({ ...entry, detail: v })
+        }}
+        title="Vendedor"
+        className={cls}
+      >
+        <option value="" disabled>— Vendedor —</option>
+        {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
+        <option value={NEW_VEN}>+ Añadir nuevo vendedor</option>
+      </select>
+    )
+
+  // Categoría: dropdown con "+ Añadir nueva categoría" que se vuelve input ahí mismo.
+  const catField = (cls: string) =>
+    newCatMode ? (
+      <input
+        value={newCat}
+        onChange={(e) => setNewCat(e.target.value)}
+        placeholder="Nueva categoría…"
+        autoFocus
+        title="Nueva categoría"
+        className={cls}
+      />
+    ) : (
+      <select
+        value={catOptions.includes(entry.category) ? entry.category : 'Proyección'}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v === NEW_CAT) { setNewCatMode(true); setNewCat('') }
+          else setEntry({ ...entry, category: v })
+        }}
+        title="Categoría"
+        className={cls}
+      >
+        {catOptions.map((c) => (<option key={c} value={c}>{c}</option>))}
+        <option value={NEW_CAT}>+ Añadir nueva categoría</option>
+      </select>
+    )
 
   const deleteRule = async (id: string) => {
     try {
@@ -488,6 +682,7 @@ export default function ProjectionsPanel() {
         category: t.category || 'Otro',
         frequency: '',
         net: (Number(t.credit) || 0) - (Number(t.debit) || 0),
+        ruleId: null,
       })),
       ...projWin.map((p) => ({
         key: `pj-${p.id}`,
@@ -497,6 +692,7 @@ export default function ProjectionsPanel() {
         category: p.category || 'Proyección',
         frequency: p.frequency || '',
         net: (Number(p.credit) || 0) - (Number(p.debit) || 0),
+        ruleId: p.rule_id || null,
       })),
     ].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
     let run = bankTotal
@@ -697,7 +893,8 @@ export default function ProjectionsPanel() {
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-xs font-semibold text-slate-500">{freqLabel(r.frequency)}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-slate-500">{r.end_date ? fmtD(r.end_date) : '—'}</td>
-                      <td className="px-2 py-2 text-right">
+                      <td className="whitespace-nowrap px-2 py-2 text-right">
+                        <button onClick={() => startEdit(r.id, nextOccurrence(r.id))} title="Editar proyección" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-blue-50 hover:text-blue-600">✎</button>
                         <button onClick={() => deleteRule(r.id)} title="Borrar proyección" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
                       </td>
                     </tr>
@@ -862,11 +1059,9 @@ export default function ProjectionsPanel() {
                 <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
                   <td colSpan={3} className="px-2 py-2">
                     <div className="grid grid-cols-2 gap-1.5">
-                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title="Inicio" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
-                      <input value={entry.detail} onChange={(e) => setEntry({ ...entry, detail: e.target.value })} placeholder="Vendedor" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
-                      <select value={entry.category} onChange={(e) => setEntry({ ...entry, category: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs">
-                        {CATS.map((c) => (<option key={c} value={c}>{c}</option>))}
-                      </select>
+                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Ocurrencia que estás editando' : 'Inicio'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
+                      {vendorField('rounded border border-slate-200 px-1.5 py-1.5 text-xs', 'Vendedor')}
+                      {catField('rounded border border-slate-200 px-1.5 py-1.5 text-xs')}
                       <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs font-semibold">
                         {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
                       </select>
@@ -874,12 +1069,27 @@ export default function ProjectionsPanel() {
                       <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Gasto" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
                       <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
                       <div className="flex items-center justify-end gap-1.5">
-                        <button onClick={commitEntry} disabled={ruleBusy} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
-                        <button onClick={() => setEntry({ ...emptyEntry, date: today })} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
+                        {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editando</span>)}
+                        <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Guardar cambios' : 'Guardar proyección'} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
+                        <button onClick={cancelEdit} title={editing ? 'Cancelar edición' : 'Limpiar'} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
                       </div>
                     </div>
                   </td>
                 </tr>
+                {scopeAsk && editing && (
+                  <tr className="border-b border-slate-200 bg-sky-50/70">
+                    <td colSpan={3} className="px-2 py-2">
+                      <div className="text-xs font-extrabold text-slate-700">¿A cuáles aplica el cambio?</div>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                        <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Solo esta</button>
+                        <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las pasadas</button>
+                        <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las futuras</button>
+                        <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-2 py-2 text-xs font-bold text-white disabled:opacity-50">Todas</button>
+                      </div>
+                      <button onClick={() => setScopeAsk(false)} className="mt-1.5 text-xs font-semibold text-slate-400 underline">Cancelar</button>
+                    </td>
+                  </tr>
+                )}
                 {movesSorted.length === 0 ? (
                   <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — entra tu proyección en la primera fila.</td></tr>
                 ) : (
@@ -899,6 +1109,9 @@ export default function ProjectionsPanel() {
                             )}
                             {isProj && r.frequency && (
                               <span className="shrink-0 rounded-full bg-blue-50 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-blue-600">{freqLabel(r.frequency)}</span>
+                            )}
+                            {isProj && r.ruleId && (
+                              <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
                             )}
                           </div>
                           <div className="truncate text-xs text-slate-400">{r.category}</div>
@@ -938,15 +1151,13 @@ export default function ProjectionsPanel() {
                 {/* Fila de entrada: primera línea del register */}
                 <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
                   <td className="px-2 py-2">
-                    <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title="Inicio" className="w-full rounded border border-slate-200 px-1 py-1 text-xs" />
+                    <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Ocurrencia que estás editando' : 'Inicio'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="w-full rounded border border-slate-200 px-1 py-1 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
                   </td>
                   <td className="px-2 py-2">
-                    <input value={entry.detail} onChange={(e) => setEntry({ ...entry, detail: e.target.value })} placeholder="Vendedor — ej. Car leasing" className="w-full rounded border border-slate-200 px-1 py-1 text-xs" />
+                    {vendorField('w-full rounded border border-slate-200 px-1 py-1 text-xs', 'Nuevo vendedor…')}
                   </td>
                   <td className="px-2 py-2">
-                    <select value={entry.category} onChange={(e) => setEntry({ ...entry, category: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-1 text-xs">
-                      {CATS.map((c) => (<option key={c} value={c}>{c}</option>))}
-                    </select>
+                    {catField('w-full rounded border border-slate-200 px-1 py-1 text-xs')}
                   </td>
                   <td className="px-2 py-2">
                     <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-1 text-xs font-semibold">
@@ -963,11 +1174,26 @@ export default function ProjectionsPanel() {
                   <td className="px-2 py-2 text-center text-xs text-slate-300">—</td>
                   <td className="px-2 py-2">
                     <div className="flex items-center justify-end gap-1">
-                      <button onClick={commitEntry} disabled={ruleBusy} title="Guardar proyección" className="rounded-lg bg-[#40b9a1] px-2.5 py-1 text-xs font-bold text-[#10243f] disabled:opacity-50">✓</button>
-                      <button onClick={() => setEntry({ ...emptyEntry, date: today })} title="Limpiar" className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">✕</button>
+                      {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editando</span>)}
+                      <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Guardar cambios' : 'Guardar proyección'} className="rounded-lg bg-[#40b9a1] px-2.5 py-1 text-xs font-bold text-[#10243f] disabled:opacity-50">✓</button>
+                      <button onClick={cancelEdit} title={editing ? 'Cancelar edición' : 'Limpiar'} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">✕</button>
                     </div>
                   </td>
                 </tr>
+                {scopeAsk && editing && (
+                    <tr className="border-b border-slate-200 bg-sky-50/70">
+                      <td colSpan={8} className="px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="mr-1 text-xs font-extrabold text-slate-700">¿A cuáles aplica el cambio?</span>
+                          <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">Solo esta</button>
+                          <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las pasadas</button>
+                          <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las futuras</button>
+                          <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">Todas</button>
+                          <button onClick={() => setScopeAsk(false)} className="text-xs font-semibold text-slate-400 underline">Cancelar</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                 {movesSorted.length === 0 ? (
                   <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — entra tu proyección en la primera fila.</td></tr>
                 ) : (
@@ -984,6 +1210,9 @@ export default function ProjectionsPanel() {
                             <span className={`font-semibold ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{r.label}</span>
                             {isProj && (
                               <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
+                            )}
+                            {isProj && r.ruleId && (
+                              <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
                             )}
                           </div>
                           <div className="text-[10px] text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
@@ -1068,11 +1297,9 @@ export default function ProjectionsPanel() {
                 <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
                   <td colSpan={3} className="px-2 py-2">
                     <div className="grid grid-cols-2 gap-1.5">
-                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title="Inicio" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
-                      <input value={entry.detail} onChange={(e) => setEntry({ ...entry, detail: e.target.value })} placeholder="Vendedor" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs" />
-                      <select value={entry.category} onChange={(e) => setEntry({ ...entry, category: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs">
-                        {CATS.map((c) => (<option key={c} value={c}>{c}</option>))}
-                      </select>
+                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Ocurrencia que estás editando' : 'Inicio'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
+                      {vendorField('rounded border border-slate-200 px-1.5 py-1.5 text-xs', 'Vendedor')}
+                      {catField('rounded border border-slate-200 px-1.5 py-1.5 text-xs')}
                       <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs font-semibold">
                         {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
                       </select>
@@ -1080,12 +1307,27 @@ export default function ProjectionsPanel() {
                       <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Gasto" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
                       <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
                       <div className="flex items-center justify-end gap-1.5">
-                        <button onClick={commitEntry} disabled={ruleBusy} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
-                        <button onClick={() => setEntry({ ...emptyEntry, date: today })} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
+                        {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editando</span>)}
+                        <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Guardar cambios' : 'Guardar proyección'} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
+                        <button onClick={cancelEdit} title={editing ? 'Cancelar edición' : 'Limpiar'} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
                       </div>
                     </div>
                   </td>
                 </tr>
+                {scopeAsk && editing && (
+                  <tr className="border-b border-slate-200 bg-sky-50/70">
+                    <td colSpan={3} className="px-2 py-2">
+                      <div className="text-xs font-extrabold text-slate-700">¿A cuáles aplica el cambio?</div>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                        <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Solo esta</button>
+                        <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las pasadas</button>
+                        <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las futuras</button>
+                        <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-2 py-2 text-xs font-bold text-white disabled:opacity-50">Todas</button>
+                      </div>
+                      <button onClick={() => setScopeAsk(false)} className="mt-1.5 text-xs font-semibold text-slate-400 underline">Cancelar</button>
+                    </td>
+                  </tr>
+                )}
                 {bancoRows.length === 0 ? (
                   <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
                 ) : (

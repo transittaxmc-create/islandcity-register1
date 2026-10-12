@@ -485,6 +485,26 @@ export default function ProjectionsPanel() {
     } catch {}
   }
 
+  // Borra UNA ocurrencia proyectada (solo esa fecha; la regla sigue generando las demás).
+  // Solo filas 🔮 — nunca toca movimientos reales del banco.
+  const deleteOccurrence = async (ruleId: string, date: string) => {
+    if (ruleBusy) return
+    setRuleBusy(true)
+    try {
+      const res = await fetch('/api/reconcile/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete-occurrence', ruleId, pivot: date }),
+      }).then((r) => r.json())
+      if (res?.error) throw new Error(res.error)
+      await refreshSummary()
+    } catch {
+      // la fila sigue ahí; nada se perdió
+    } finally {
+      setRuleBusy(false)
+    }
+  }
+
   useEffect(() => {
     let alive = true
     try {
@@ -1102,16 +1122,23 @@ export default function ProjectionsPanel() {
                       <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'}`}>
                         <td className="whitespace-nowrap px-2 py-1.5 align-top tabular-nums text-slate-500">{fmtD(r.date)}</td>
                         <td className="min-w-0 px-2 py-1.5 align-top">
-                          <div className="flex flex-wrap items-center gap-1">
-                            <span className={`line-clamp-2 text-sm font-semibold leading-snug ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{isProj ? '🔮' : '🏦'} {r.label}</span>
+                          <div className="flex items-start gap-1.5">
+                            <div className="min-w-0 flex-1">
+                              <span className={`line-clamp-2 text-sm font-semibold leading-snug ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{isProj ? '🔮' : '🏦'} {r.label}</span>
+                            </div>
                             {isProj && (
-                              <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
-                            )}
-                            {isProj && r.frequency && (
-                              <span className="shrink-0 rounded-full bg-blue-50 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-blue-600">{freqLabel(r.frequency)}</span>
-                            )}
-                            {isProj && r.ruleId && (
-                              <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
+                              <span className="flex shrink-0 items-center gap-1 pt-px">
+                                <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
+                                {r.frequency && (
+                                  <span className="rounded-full bg-blue-50 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-blue-600">{freqLabel(r.frequency)}</span>
+                                )}
+                                {r.ruleId && (
+                                  <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
+                                )}
+                                {r.ruleId && (
+                                  <button onClick={() => deleteOccurrence(r.ruleId as string, r.date)} title="Borrar esta proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
+                                )}
+                              </span>
                             )}
                           </div>
                           <div className="truncate text-xs text-slate-400">{r.category}</div>
@@ -1206,16 +1233,19 @@ export default function ProjectionsPanel() {
                       <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'} hover:bg-blue-50/40`}>
                         <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{fmtD(r.date)}</td>
                         <td className="px-3 py-2">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`font-semibold ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{r.label}</span>
-                            {isProj && (
-                              <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
-                            )}
+                          <div className="flex items-start gap-1.5">
+                            <div className="min-w-0 flex-1">
+                              <span className={`line-clamp-2 font-semibold leading-snug ${isProj ? 'italic text-slate-600' : 'text-slate-800'}`}>{r.label}</span>
+                            </div>
                             {isProj && r.ruleId && (
-                              <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="shrink-0 rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
+                              <span className="flex shrink-0 items-center gap-1 pt-px">
+                                <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
+                                <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
+                                <button onClick={() => deleteOccurrence(r.ruleId as string, r.date)} title="Borrar esta proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
+                              </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
+                          <div className="mt-0.5 truncate text-[10px] text-slate-400">{isProj ? `🔮 ${r.sub}` : `🏦 ${r.sub}`}</div>
                         </td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{r.category}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-xs font-medium text-slate-500">{isProj ? freqLabel(r.frequency) : <span className="text-slate-300">—</span>}</td>

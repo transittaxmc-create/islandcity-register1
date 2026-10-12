@@ -31,6 +31,7 @@ export type ProjRule = {
   frequency: string
   pay_day: string
   end_date?: string // 'YYYY-MM-DD' — hasta cuándo corre la regla (opcional)
+  category?: string // categoría de la proyección (opcional; la columna puede no existir aún)
 }
 
 // Categorías que nunca cuentan como ingreso/gasto real (igual que el Estado Bancario).

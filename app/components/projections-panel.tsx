@@ -954,37 +954,36 @@ export default function ProjectionsPanel() {
             </div>
           </div>
 
-          <div className="mt-2 max-h-[320px] overflow-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
+          <div className="mt-2 max-h-[320px] overflow-auto overscroll-contain rounded-lg border border-slate-100">
+            <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detalle</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Categoría</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Ingreso</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Gasto</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Balance</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Descripción</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
                 </tr>
               </thead>
               <tbody>
                 {bancoRows.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
+                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
                 ) : (
                   bancoRows.map((t) => {
                     const inc = Number(t.credit) || 0
                     const exp = Number(t.debit) || 0
+                    const isInc = inc > 0
                     return (
                       <tr key={t.id} className="border-t border-slate-100 even:bg-slate-50/60">
-                        <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-slate-500">{fmtD(t.date)}</td>
-                        <td className="max-w-[240px] truncate px-2 py-1.5 font-medium text-slate-700">{t.detail}</td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-xs text-slate-400">{t.category}</td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-[#16a34a]">
-                          {inc > 0 ? `+${num2(inc)}` : <span className="text-slate-300">—</span>}
+                        <td className="whitespace-nowrap px-2 py-2 align-top tabular-nums text-slate-500">{fmtD(t.date)}</td>
+                        <td className="max-w-[260px] px-2 py-2 align-top">
+                          <div className="truncate font-medium text-slate-700">{t.detail}</div>
+                          <div className="truncate text-[11px] text-slate-400">{t.category}</div>
                         </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold tabular-nums text-red-500">
-                          {exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
+                        <td className="whitespace-nowrap px-2 py-2 text-right align-top">
+                          <div className={`font-semibold tabular-nums ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
+                            {isInc ? `+${num2(inc)}` : exp > 0 ? `−${num2(exp)}` : <span className="text-slate-300">—</span>}
+                          </div>
+                          <div className="font-bold tabular-nums text-slate-900">{num2(t.bal)}</div>
                         </td>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-right font-bold tabular-nums text-slate-800">{num2(t.bal)}</td>
                       </tr>
                     )
                   })

@@ -31,7 +31,6 @@ const BLUE = '#3b82f6'
 const ORANGE = '#f59e0b'
 const GREEN = '#16a34a'
 const INK = '#1e293b'
-const DONUT_COLORS = ['#3b82f6', '#f59e0b', '#eab308', '#8b5cf6', '#14b8a6', '#ef4444', '#94a3b8']
 
 // Etiqueta corta: banco + últimos 4 dígitos (igual que el Journal)
 const shortBank = (a: Acct) => {
@@ -46,6 +45,12 @@ const fmtD = (iso: string) => {
   const [y, m, d] = iso.split('-').map(Number)
   if (!y || !m || !d) return iso
   return `${MES[m - 1]} ${String(d).padStart(2, '0')}`
+}
+
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const weekdayOf = (iso: string) => {
+  const d = new Date(iso + 'T12:00:00')
+  return Number.isNaN(d.getTime()) ? '' : WD[d.getDay()]
 }
 
 // Etiquetas en inglés para frecuencia (los valores internos siguen en español, que es lo que espera el motor)
@@ -202,6 +207,32 @@ export default function ProjectionsPanel() {
   const [newVen, setNewVen] = useState('')
   const NEW_CAT = '__nueva_categoria__'
   const NEW_VEN = '__nuevo_vendedor__'
+
+  // ============ DAILY: entrada diaria de trabajos ============
+  const DAILY_PREFIX = 'DAILY \u00b7 '
+  const DAILY_DRAFT_KEY = 'daily-draft-v1'
+  const DAILY_CLOSE_KEY = 'daily-closes-v1'
+  const DAILY_CAT = 'Dep\u00f3sito plataforma'
+  const DNEW_PLAT = '__nueva_plataforma__'
+  type DraftEntry = { id: string; platform: string; amount: number }
+  type CloseItem = { platform: string; total: number; payDate: string; ruleId: string; status: 'pending' | 'fulfilled'; realAmount?: number; realTxId?: string; matchedAt?: string }
+  type CloseRec = { workDate: string; closedAt: string; items: CloseItem[] }
+  const [draftWorkDate, setDraftWorkDate] = useState(today)
+  const [drafts, setDrafts] = useState<DraftEntry[]>([])
+  const [dPlat, setDPlat] = useState('')
+  const [dPlatNewMode, setDPlatNewMode] = useState(false)
+  const [dPlatNew, setDPlatNew] = useState('')
+  const [dAmt, setDAmt] = useState('')
+  const [dEditId, setDEditId] = useState<string | null>(null)
+  const [dEditAmt, setDEditAmt] = useState('')
+  const [dEditPlatId, setDEditPlatId] = useState<string | null>(null)
+  const [closing, setClosing] = useState(false)
+  const [payDates, setPayDates] = useState<Record<string, string>>({})
+  const [closes, setCloses] = useState<CloseRec[]>([])
+  const [showHist, setShowHist] = useState(false)
+  const [matchRuleId, setMatchRuleId] = useState<string | null>(null)
+  const [matchTxId, setMatchTxId] = useState('')
+  const [dailyBusy, setDailyBusy] = useState(false)
 
   // Preferencias guardadas: banco principal + balances corregidos + mínimo + ocultar transfers
   useEffect(() => {
@@ -518,6 +549,202 @@ export default function ProjectionsPanel() {
     await refreshSummary(true)
   }
 
+  // ============ DAILY: lógica ============
+  // Borradores del día (locales, instantáneos) + historial de cierres.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DAILY_DRAFT_KEY)
+      if (raw) {
+        const d = JSON.parse(raw)
+        if (d && Array.isArray(d.items)) {
+          setDraftWorkDate(typeof d.workDate === 'string' && d.workDate ? d.workDate : today)
+          setDrafts(
+            d.items
+              .filter((x: any) => x && String(x.platform || '').trim() && Number(x.amount) > 0)
+              .map((x: any) => ({ id: String(x.id), platform: String(x.platform), amount: Number(x.amount) }))
+          )
+        }
+      }
+      const rc = localStorage.getItem(DAILY_CLOSE_KEY)
+      if (rc) {
+        const arr = JSON.parse(rc)
+        if (Array.isArray(arr)) setCloses(arr.filter((c: any) => c && Array.isArray(c.items)))
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DAILY_DRAFT_KEY, JSON.stringify({ workDate: draftWorkDate, items: drafts }))
+    } catch {}
+  }, [draftWorkDate, drafts])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(DAILY_CLOSE_KEY, JSON.stringify(closes.slice(0, 60)))
+    } catch {}
+  }, [closes])
+
+  const draftTotal = useMemo(() => drafts.reduce((s, d) => s + (Number(d.amount) || 0), 0), [drafts])
+
+  const addDraft = async () => {
+    const plat = (dPlatNewMode ? dPlatNew : dPlat).trim()
+    const amt = Math.abs(Number(dAmt) || 0)
+    if (!plat || amt <= 0 || dailyBusy) return
+    await persistList('vendors', plat)
+    const id = `d${Date.now()}${Math.floor(Math.random() * 1000)}`
+    setDrafts((prev) => [...prev, { id, platform: plat, amount: amt }])
+    setDPlat('')
+    setDPlatNew('')
+    setDPlatNewMode(false)
+    setDAmt('')
+  }
+
+  const delDraft = (id: string) => setDrafts((prev) => prev.filter((d) => d.id !== id))
+
+  const saveDraftAmt = (id: string) => {
+    const amt = Math.abs(Number(dEditAmt) || 0)
+    if (amt > 0) setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, amount: amt } : d)))
+    setDEditId(null)
+    setDEditAmt('')
+  }
+
+  // Totales por plataforma para el cierre.
+  const closeTotals = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const d of drafts) m.set(d.platform, (m.get(d.platform) || 0) + (Number(d.amount) || 0))
+    return [...m.entries()]
+      .map(([platform, total]) => ({ platform, total }))
+      .sort((a, b) => a.platform.localeCompare(b.platform, 'es'))
+  }, [drafts])
+
+  const openClose = () => {
+    if (drafts.length === 0 || dailyBusy) return
+    const pd: Record<string, string> = {}
+    for (const x of closeTotals) pd[x.platform] = today
+    setPayDates(pd)
+    setClosing(true)
+  }
+
+  // Cerrar el día: crea un depósito pendiente (pago único) por plataforma en Proyecciones.
+  const confirmClose = async () => {
+    if (dailyBusy || closeTotals.length === 0) return
+    setDailyBusy(true)
+    try {
+      await persistList('categories', DAILY_CAT)
+      const items: CloseItem[] = []
+      for (const x of closeTotals) {
+        const rawDate = payDates[x.platform] || today
+        const payDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : today
+        const res = await fetch('/api/reconcile/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entry_type: 'proyectado',
+            date: payDate,
+            detail: `${DAILY_PREFIX}${x.platform}`,
+            category: DAILY_CAT,
+            frequency: 'Un solo pago',
+            debit: 0,
+            credit: x.total,
+          }),
+        }).then((r) => r.json())
+        if (res?.error) throw new Error(res.error)
+        items.push({ platform: x.platform, total: x.total, payDate, ruleId: String(res?.rule?.id || ''), status: 'pending' })
+      }
+      const rec: CloseRec = { workDate: draftWorkDate, closedAt: new Date().toISOString(), items }
+      setCloses((prev) => [rec, ...prev].slice(0, 60))
+      setDrafts([])
+      setDraftWorkDate(today)
+      setClosing(false)
+      await refreshSummary(true)
+    } catch {
+      // se deja el diálogo abierto para no perder nada
+    } finally {
+      setDailyBusy(false)
+    }
+  }
+
+  // Depósitos pendientes del Daily: pagos únicos de ingreso con prefijo DAILY.
+  const dailyPending = useMemo(
+    () =>
+      ruleItems
+        .filter(
+          (r) =>
+            String(r.type || '').toLowerCase() === 'ingreso' &&
+            String(r.frequency) === 'Un solo pago' &&
+            String(r.concept || '').startsWith(DAILY_PREFIX)
+        )
+        .map((r) => ({ ...r, platform: String(r.concept).slice(DAILY_PREFIX.length).trim() || String(r.concept) }))
+        .sort((a, b) => String(a.pay_day).localeCompare(String(b.pay_day))),
+    [ruleItems]
+  )
+
+  // Candidatos reales para emparejar: créditos del banco principal.
+  const matchCandidates = useMemo(
+    () =>
+      mainTxs
+        .filter((x) => (Number(x.credit) || 0) > 0)
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, 40),
+    [mainTxs]
+  )
+
+  // Emparejar: si el monto real difiere, se ajusta el programado; luego se marca
+  // cumplido borrando la regla (el real queda en el banco: el ingreso no se duplica).
+  const confirmMatch = async () => {
+    const rule = dailyPending.find((r) => String(r.id) === String(matchRuleId))
+    const tx = matchCandidates.find((x) => String(x.id) === String(matchTxId))
+    if (!rule || !tx || dailyBusy) return
+    const programmed = Math.abs(Number(rule.amount) || 0)
+    const real = Math.abs(Number(tx.credit) || 0)
+    setDailyBusy(true)
+    try {
+      if (Math.abs(programmed - real) >= 0.005) {
+        const res = await fetch('/api/reconcile/rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ruleId: String(rule.id),
+            pivot: String(rule.pay_day),
+            scope: 'todas',
+            values: {
+              concept: String(rule.concept),
+              amount: real,
+              type: 'ingreso',
+              frequency: 'Un solo pago',
+              pay_day: String(rule.pay_day),
+              end_date: null,
+              category: rule.category || DAILY_CAT,
+            },
+          }),
+        }).then((r) => r.json())
+        if (res?.error) throw new Error(res.error)
+      }
+      const del = await fetch(`/api/reconcile/data?id=${encodeURIComponent(String(rule.id))}`, { method: 'DELETE' }).then((r) => r.json())
+      if (del?.error) throw new Error(del.error)
+      setCloses((prev) =>
+        prev.map((c) => ({
+          ...c,
+          items: c.items.map((it) =>
+            String(it.ruleId) === String(rule.id)
+              ? { ...it, status: 'fulfilled' as const, realAmount: real, realTxId: String(tx.id), matchedAt: new Date().toISOString() }
+              : it
+          ),
+        }))
+      )
+      setMatchRuleId(null)
+      setMatchTxId('')
+      await refreshSummary(true)
+    } catch {
+      // se deja abierto para reintentar
+    } finally {
+      setDailyBusy(false)
+    }
+  }
+
   useEffect(() => {
     let alive = true
     try {
@@ -652,37 +879,8 @@ export default function ProjectionsPanel() {
     return arr
   }, [projWin, today, year])
 
-  // Dona: gastos proyectados por detalle
-  const donutProj = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const p of projWin) {
-      const d = Number(p.debit) || 0
-      if (d > 0) map.set(p.detail, (map.get(p.detail) || 0) + d)
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1])
-  }, [projWin])
-
   const maxBar = Math.max(1, ...winMonths.flatMap((m) => [m.inc, m.exp]))
   const barTicks = [maxBar, (maxBar * 3) / 4, maxBar / 2, maxBar / 4, 0]
-
-  const donutSegs = donutProj.slice(0, 6) as [string, number][]
-  const donutTotal = donutSegs.reduce((s, kv) => s + kv[1], 0)
-  const R = 70
-  const CIRC = 2 * Math.PI * R
-  let dAcc = 0
-  const dSegs = donutSegs.map((kv, i) => {
-    const k = kv[0]
-    const v = kv[1]
-    const rot = donutTotal > 0 ? (dAcc / donutTotal) * 360 : 0
-    dAcc += v
-    return {
-      k,
-      v,
-      color: DONUT_COLORS[i % DONUT_COLORS.length],
-      dash: donutTotal > 0 ? `${((v / donutTotal) * CIRC).toFixed(1)} ${CIRC.toFixed(1)}` : `0 ${CIRC.toFixed(1)}`,
-      rot,
-    }
-  })
 
   // Balances: siempre en vivo desde Plaid (current_balance) — sin edición manual
   const mainAcct = accounts.find((a) => a.name === effMain)
@@ -977,7 +1175,7 @@ export default function ProjectionsPanel() {
         </div>
       </section>
 
-      {/* Barras + dona — solo ventana de proyección */}
+      {/* Barras + Daily — solo ventana de proyección */}
       <section className="mt-3 grid gap-3 xl:grid-cols-5">
         <div className={`${card} xl:col-span-3`}>
           <h3 className={h3}>Proyectado por mes</h3>
@@ -1019,45 +1217,197 @@ export default function ProjectionsPanel() {
         </div>
 
         <div className={`${card} xl:col-span-2`}>
-          <h3 className={h3}>Gastos proyectados</h3>
-          <div className="mt-1 flex items-center gap-4">
-            <div className="relative size-[120px] shrink-0">
-            <svg viewBox="0 0 180 180" className="size-full">
-              <circle cx="90" cy="90" r={R} fill="none" stroke="#eef2f7" strokeWidth="22" />
-              {dSegs.map((s) => (
-                <circle
-                  key={s.k}
-                  cx="90"
-                  cy="90"
-                  r={R}
-                  fill="none"
-                  stroke={s.color}
-                  strokeWidth="22"
-                  strokeDasharray={s.dash}
-                  transform={`rotate(${s.rot - 90} 90 90)`}
-                />
-              ))}
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex max-w-[86px] flex-col items-center justify-center px-1 text-center leading-tight">
-                <div className="w-full truncate text-[13px] font-extrabold tabular-nums tracking-tight text-slate-800">{money(donutTotal)}</div>
-                <div className="text-[8px] font-medium text-slate-400">Total proyectado</div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className={h3}>Daily</h3>
+            <p className="text-[11px] text-slate-400">Entrada del día · {fmtD(draftWorkDate)}{draftWorkDate !== today ? ' (sin cerrar)' : ''}</p>
+          </div>
+
+          {/* Entrada rápida: plataforma + monto */}
+          <div className="mt-2 grid grid-cols-[1fr_92px_auto] items-center gap-1.5">
+            {dPlatNewMode ? (
+              <input
+                value={dPlatNew}
+                onChange={(e) => setDPlatNew(e.target.value)}
+                placeholder="Nueva plataforma…"
+                autoFocus
+                title="Nueva plataforma"
+                className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+              />
+            ) : (
+              <select
+                value={dPlat}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === DNEW_PLAT) { setDPlatNewMode(true); setDPlatNew('') }
+                  else setDPlat(v)
+                }}
+                title="Plataforma"
+                className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+              >
+                <option value="" disabled>— Plataforma —</option>
+                {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
+                <option value={DNEW_PLAT}>+ Añadir nueva plataforma</option>
+              </select>
+            )}
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              value={dAmt}
+              onChange={(e) => setDAmt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addDraft() }}
+              placeholder="$ 0.00"
+              title="Monto"
+              className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-xs font-semibold tabular-nums"
+            />
+            <button onClick={addDraft} disabled={dailyBusy} title="Agregar entrada" className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#16a34a] text-base font-bold leading-none text-white disabled:opacity-40">+</button>
+          </div>
+          {dPlatNewMode && (
+            <div className="mt-1 flex justify-end">
+              <button onClick={() => { setDPlatNewMode(false); setDPlatNew('') }} className="text-[11px] font-semibold text-slate-400">Cancelar</button>
+            </div>
+          )}
+
+          {/* Lista del día: editable */}
+          <div className="mt-2 max-h-[180px] overflow-y-auto overscroll-contain rounded-lg border border-slate-100">
+            {drafts.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs text-slate-400">Sin entradas hoy. Agrega cada trabajo arriba.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {drafts.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2 px-2 py-1.5">
+                    {dEditPlatId === d.id ? (
+                      <select
+                        autoFocus
+                        value={d.platform}
+                        onChange={(e) => { setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, platform: e.target.value } : x))); setDEditPlatId(null) }}
+                        onBlur={() => setDEditPlatId(null)}
+                        className="min-w-0 flex-1 rounded border border-slate-200 px-1 py-1 text-xs"
+                      >
+                        {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
+                      </select>
+                    ) : (
+                      <button onClick={() => setDEditPlatId(d.id)} title="Cambiar plataforma" className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-slate-700">{d.platform}</button>
+                    )}
+                    {dEditId === d.id ? (
+                      <input
+                        autoFocus
+                        type="number"
+                        inputMode="decimal"
+                        value={dEditAmt}
+                        onChange={(e) => setDEditAmt(e.target.value)}
+                        onBlur={() => saveDraftAmt(d.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveDraftAmt(d.id) }}
+                        className="w-20 shrink-0 rounded border border-slate-200 px-1 py-1 text-right text-xs font-semibold tabular-nums"
+                      />
+                    ) : (
+                      <button onClick={() => { setDEditId(d.id); setDEditAmt(String(d.amount)) }} title="Editar monto" className="shrink-0 text-xs font-bold tabular-nums text-slate-700">{money(d.amount)}</button>
+                    )}
+                    <button onClick={() => delDraft(d.id)} title="Borrar entrada" className="grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold text-slate-300 hover:bg-red-50 hover:text-red-500">✕</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-slate-500">Total del día <span className="font-bold tabular-nums text-slate-800">{money(draftTotal)}</span></span>
+            <button onClick={openClose} disabled={drafts.length === 0 || dailyBusy} className="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">Cerrar el día</button>
+          </div>
+
+          {/* Cierre: fecha de pago por plataforma */}
+          {closing && (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+              <p className="text-xs font-bold text-slate-700">Fecha de pago por plataforma</p>
+              <ul className="mt-1 space-y-1">
+                {closeTotals.map((x) => (
+                  <li key={x.platform} className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-600">{x.platform} · <span className="tabular-nums">{money(x.total)}</span></span>
+                    <input type="date" value={payDates[x.platform] || today} onChange={(e) => setPayDates((pr) => ({ ...pr, [x.platform]: e.target.value }))} title="Fecha de pago" className="shrink-0 rounded border border-slate-200 px-1 py-1 text-xs" />
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex justify-end gap-2">
+                <button onClick={() => setClosing(false)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500">Cancelar</button>
+                <button onClick={confirmClose} disabled={dailyBusy} className="rounded-lg bg-[#16a34a] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">Confirmar cierre</button>
               </div>
             </div>
+          )}
+
+          {/* Depósitos pendientes de emparejar */}
+          {dailyPending.length > 0 && (
+            <div className="mt-3">
+              <p className="text-xs font-bold text-slate-700">Depósitos pendientes ({dailyPending.length})</p>
+              <ul className="mt-1 space-y-1">
+                {dailyPending.map((r) => (
+                  <li key={String(r.id)} className="rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">🔮 {r.platform}</span>
+                      <span className="shrink-0 text-xs font-bold tabular-nums text-slate-800">{money(r.amount)}</span>
+                      <span className="shrink-0 text-[10px] tabular-nums text-slate-500">{fmtD(String(r.pay_day))}</span>
+                      <button onClick={() => { setMatchRuleId(String(r.id)); setMatchTxId('') }} title="Emparejar con depósito real" className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600 shadow-sm">Emparejar</button>
+                    </div>
+                    {String(matchRuleId) === String(r.id) && (
+                      <div className="mt-1.5 rounded-md bg-white p-1.5">
+                        <select value={matchTxId} onChange={(e) => setMatchTxId(e.target.value)} className="w-full rounded border border-slate-200 px-1 py-1 text-xs">
+                          <option value="" disabled>— Depósito real en el banco —</option>
+                          {matchCandidates.map((x) => (
+                            <option key={String(x.id)} value={String(x.id)}>{fmtD(x.date)} · {(x.detail || '').slice(0, 32)} · {money(Number(x.credit) || 0)}</option>
+                          ))}
+                        </select>
+                        {(() => {
+                          const tx = matchCandidates.find((x) => String(x.id) === String(matchTxId))
+                          if (!tx) return null
+                          const real = Math.abs(Number(tx.credit) || 0)
+                          const prog = Math.abs(Number(r.amount) || 0)
+                          const diff = Math.abs(prog - real) >= 0.005
+                          return (
+                            <div className="mt-1.5 flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-slate-500">Programado <b className="tabular-nums">{money(prog)}</b> vs real <b className="tabular-nums">{money(real)}</b></span>
+                              <div className="flex shrink-0 gap-1.5">
+                                <button onClick={() => { setMatchRuleId(null); setMatchTxId('') }} className="rounded px-2 py-1 text-[11px] font-bold text-slate-400">Cancelar</button>
+                                <button onClick={confirmMatch} disabled={dailyBusy} className="rounded bg-[#16a34a] px-2 py-1 text-[11px] font-bold text-white disabled:opacity-40">{diff ? `Ajustar a ${money(real)} y marcar cumplido` : 'Marcar cumplido'}</button>
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
-            <div className="min-w-0 flex-1 space-y-1">
-              {dSegs.map((s) => (
-                <div key={s.k} className="flex min-w-0 items-center gap-1.5 text-xs">
-                  <i className="inline-block size-2.5 shrink-0 rounded-full" style={{ background: s.color }} />
-                  <span className="min-w-0 flex-1 truncate text-slate-500">{s.k}</span>
-                  <span className="font-bold tabular-nums text-slate-700">{donutTotal > 0 ? Math.round((s.v / donutTotal) * 100) : 0}%</span>
-                </div>
-              ))}
-              {dSegs.length === 0 && <p className="py-2 text-center text-xs text-slate-400">Sin gastos proyectados.</p>}
+          )}
+
+          {/* Historial de días cerrados */}
+          {closes.length > 0 && (
+            <div className="mt-3">
+              <button onClick={() => setShowHist((v) => !v)} className="text-xs font-bold text-slate-500">Días cerrados ({closes.length}) {showHist ? '▾' : '▸'}</button>
+              {showHist && (
+                <ul className="mt-1 max-h-[160px] space-y-1.5 overflow-y-auto overscroll-contain">
+                  {closes.map((c, i) => (
+                    <li key={`${c.workDate}-${i}`} className="rounded-lg border border-slate-100 px-2 py-1.5">
+                      <p className="text-[11px] font-bold text-slate-600">{fmtD(c.workDate)}{c.workDate === today ? ' (hoy)' : ''}</p>
+                      {c.items.map((it, j) => (
+                        <p key={j} className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                          <span className="min-w-0 truncate">{it.platform} → {fmtD(it.payDate)}</span>
+                          <span className="shrink-0 tabular-nums">
+                            {money(it.total)}
+                            {it.status === 'fulfilled'
+                              ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-px text-[9px] font-bold text-green-700">✓ {money(it.realAmount || 0)}</span>
+                              : <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-bold text-amber-700">Pendiente</span>}
+                          </span>
+                        </p>
+                      ))}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-          </div>
+          )}
         </div>
       </section>
+
 
       {/* UN SOLO register condensado: reales + proyectadas, marcadas diferente */}
       <section className="mt-3">
@@ -1168,7 +1518,10 @@ export default function ProjectionsPanel() {
                     const health = r.chronoBal < 0 ? 'bad' : r.chronoBal < safetyFloor ? 'warn' : 'ok'
                     return (
                       <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'}`}>
-                        <td className="whitespace-nowrap px-2 py-1.5 align-top tabular-nums text-slate-500">{fmtD(r.date)}</td>
+                        <td className="whitespace-nowrap px-2 py-1.5 align-top tabular-nums text-slate-500">
+                          <div className="leading-tight">{fmtD(r.date)}</div>
+                          <div className="text-[9px] font-medium leading-tight text-slate-400">{weekdayOf(r.date)}</div>
+                        </td>
                         <td className="min-w-0 px-2 py-1.5 align-top">
                           <div className="flex items-start gap-1.5">
                             <div className="min-w-0 flex-1">
@@ -1280,7 +1633,10 @@ export default function ProjectionsPanel() {
                     const health = r.chronoBal < 0 ? 'bad' : r.chronoBal < safetyFloor ? 'warn' : 'ok'
                     return (
                       <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'} hover:bg-blue-50/40`}>
-                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{fmtD(r.date)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">
+                          <div className="leading-tight">{fmtD(r.date)}</div>
+                          <div className="text-[9px] font-medium leading-tight text-slate-400">{weekdayOf(r.date)}</div>
+                        </td>
                         <td className="px-3 py-2">
                           <div className="flex items-start gap-1.5">
                             <div className="min-w-0 flex-1">

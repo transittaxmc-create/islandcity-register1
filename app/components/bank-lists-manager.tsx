@@ -7,9 +7,9 @@ import { useEffect, useState } from 'react'
 type Item = { id: string; name: string }
 
 const SECTIONS = [
-  { key: 'accounts', title: 'Cuentas', desc: 'Tus cuentas de banco', placeholder: 'Nombre de la cuenta…' },
-  { key: 'categories', title: 'Categorías', desc: 'Categorías del Libro Diario', placeholder: 'Nueva categoría…' },
-  { key: 'vendors', title: 'Proveedores', desc: 'Comercios y proveedores frecuentes', placeholder: 'Nombre del proveedor…' },
+  { key: 'accounts', title: 'Accounts', desc: 'Your bank accounts', placeholder: 'Account name…' },
+  { key: 'categories', title: 'Categories', desc: 'Journal categories', placeholder: 'New category…' },
+  { key: 'vendors', title: 'Vendors', desc: 'Frequent merchants and vendors', placeholder: 'Vendor name…' },
 ] as const
 
 export default function BankListsManager() {
@@ -43,13 +43,13 @@ export default function BankListsManager() {
       setInputs((i) => ({ ...i, [key]: '' }))
       setMsg('')
     } catch (e: any) {
-      setMsg('No se pudo añadir: ' + e.message)
+      setMsg('Could not add: ' + e.message)
     }
     setBusy(null)
   }
 
   async function del(key: string, id: string) {
-    if (!confirm('¿Eliminar este elemento?')) return
+    if (!confirm('Delete this item?')) return
     try {
       await fetch(`/api/reconcile/lists?list=${key}&id=${id}`, { method: 'DELETE' })
       setLists((l) => ({ ...l, [key]: l[key].filter((x) => x.id !== id) }))
@@ -61,7 +61,7 @@ export default function BankListsManager() {
       {SECTIONS.map((s) => (
         <div key={s.key} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="font-bold">{s.title}</h3>
-          <p className="mt-1 text-xs text-slate-500">{s.desc}. Lo que añadas aquí aparece en los menús del Libro Diario.</p>
+          <p className="mt-1 text-xs text-slate-500">{s.desc}. Anything you add here appears in the Journal menus.</p>
           {s.key === 'accounts' && (
             <a
               href="https://agent.meta.ai/connectors/plaid/accounts/link"
@@ -69,7 +69,7 @@ export default function BankListsManager() {
               rel="noopener noreferrer"
               className="mt-3 block w-full rounded-xl bg-[#40b9a1] py-2.5 text-center text-sm font-bold text-[#10243f] hover:bg-[#35a48f]"
             >
-              ＋ Añadir cuenta de banco (Plaid)
+              ＋ Add bank account (Plaid)
             </a>
           )}
           <div className="mt-4 flex gap-2">
@@ -85,17 +85,17 @@ export default function BankListsManager() {
               disabled={busy === s.key || !(inputs[s.key] || '').trim()}
               className="rounded-xl bg-[#10243f] px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
             >
-              + Añadir
+              + Add
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {lists[s.key].map((x) => (
               <span key={x.id} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-sm">
                 {x.name}
-                <button onClick={() => del(s.key, x.id)} className="ml-1 font-bold text-slate-400 hover:text-red-600" aria-label={`Eliminar ${x.name}`}>×</button>
+                <button onClick={() => del(s.key, x.id)} className="ml-1 font-bold text-slate-400 hover:text-red-600" aria-label={`Delete ${x.name}`}>×</button>
               </span>
             ))}
-            {lists[s.key].length === 0 && <p className="text-xs text-slate-400">Vacío.</p>}
+            {lists[s.key].length === 0 && <p className="text-xs text-slate-400">Empty.</p>}
           </div>
         </div>
       ))}

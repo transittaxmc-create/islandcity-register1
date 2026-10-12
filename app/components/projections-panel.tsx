@@ -12,6 +12,8 @@ const MAIN_BANK_KEY = 'proj-main-bank'
 const SAFETY_FLOOR_KEY = 'proj-safety-floor'
 const HIDE_TR_KEY = 'proj-hide-transfers'
 const VIEW_KEY = 'proj-view'
+const OTROS_KEY = 'proj-otros-fondos'
+const OTROS_EVT = 'otros-fondos-changed'
 const DEFAULT_MAIN = 'Access Account …6393'
 
 const num2 = (v: number) =>
@@ -174,7 +176,7 @@ type DailyRow = { date: string; opening: number; inflow: number; outflow: number
 const TRANSFER_CATS = ['transfer', 'transferencias internas', 'por verificar']
 const isTransferCat = (c: string) => TRANSFER_CATS.includes(String(c || '').trim().toLowerCase())
 
-export default function ProjectionsPanel() {
+export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => void }) {
   const [accounts, setAccounts] = useState<Acct[]>([])
   const [projected, setProjected] = useState<ProjItem[]>([])
   const [ruleItems, setRuleItems] = useState<RuleItem[]>([])
@@ -184,6 +186,7 @@ export default function ProjectionsPanel() {
   const [safetyFloor, setSafetyFloor] = useState<number>(0)
   const [hideTransfers, setHideTransfers] = useState<boolean>(true)
   const [view, setView] = useState<'banco' | 'proyecciones'>('proyecciones')
+  const [otrosSel, setOtrosSel] = useState<string[]>([])
   const [ruleBusy, setRuleBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -246,6 +249,21 @@ export default function ProjectionsPanel() {
       const v = localStorage.getItem(VIEW_KEY)
       if (v === 'banco' || v === 'proyecciones') setView(v)
     } catch {}
+  }, [])
+
+  // Otros fondos: cuentas marcadas en Ajustes → Proyecciones (persisten en localStorage).
+  // Se re-lee al montar y ante cambios (misma pestaña u otra).
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = localStorage.getItem(OTROS_KEY)
+        const arr = raw ? JSON.parse(raw) : []
+        setOtrosSel(Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [])
+      } catch { setOtrosSel([]) }
+    }
+    read()
+    window.addEventListener(OTROS_EVT, read)
+    return () => window.removeEventListener(OTROS_EVT, read)
   }, [])
 
   const setFloor = (v: number) => {
@@ -889,12 +907,19 @@ export default function ProjectionsPanel() {
   const mainBal = mainAcct ? bankVal(mainAcct) : 0
   const othersTotal = otherAccts.reduce((s, a) => s + bankVal(a), 0)
   const bankTotal = mainBal + othersTotal
+  // Otros fondos: suma de cuentas marcadas en Ajustes → Proyecciones. Solo cash con
+  // balance positivo y distinto del banco principal (nunca se duplica la base).
+  // Entra a la proyección como parte del Balance inicial; el Banco no se toca.
+  const otrosSum = useMemo(
+    () => accounts.filter((a) => a.name !== effMain && bankVal(a) > 0 && otrosSel.includes(a.name)).reduce((s, a) => s + bankVal(a), 0),
+    [accounts, effMain, otrosSel]
+  )
 
   const winInc = projWin.reduce((s, p) => s + (Number(p.credit) || 0), 0)
   const winExp = projWin.reduce((s, p) => s + (Number(p.debit) || 0), 0)
   const winIncCount = projWin.filter((p) => Number(p.credit) > 0).length
   const winExpCount = projWin.filter((p) => Number(p.debit) > 0).length
-  const grandTotal = mainBal + winInc - winExp
+  const grandTotal = mainBal + otrosSum + winInc - winExp
 
   // Movimientos del registro (solo banco principal), con balance corrido cronológico
   // Si se ocultan transfers, se excluyen por categoría (las reglas proyectadas no son transfers)
@@ -934,14 +959,14 @@ export default function ProjectionsPanel() {
     ].sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key))
     // Balance banco: SOLO datos reales del banco seleccionado (Plaid). Las proyecciones
     // jamás entran aquí: esta columna nunca muestra un negativo que no sea real.
-    let run = mainBal
+    let run = mainBal + otrosSum
     let runBank = mainBal
     return arr.map((m) => {
       run += m.net
       if (m.key.startsWith('tx-')) runBank += m.net
       return { ...m, chronoBal: run, bankBal: runBank }
     })
-  }, [visibleTxs, projWin, mainBal, ruleItems])
+  }, [visibleTxs, projWin, mainBal, otrosSum, ruleItems])
 
   const movesSorted = useMemo(() => {
     const r = [...movesChrono]
@@ -990,7 +1015,7 @@ export default function ProjectionsPanel() {
       byDate.set(m.date, e)
     }
     const rows: DailyRow[] = []
-    let run = mainBal
+    let run = mainBal + otrosSum
     const d = new Date(today + 'T12:00:00')
     const end = new Date(yearEnd + 'T12:00:00')
     while (d <= end) {
@@ -1012,7 +1037,7 @@ export default function ProjectionsPanel() {
       d.setDate(d.getDate() + 1)
     }
     return rows
-  }, [movesChrono, mainBal, today, yearEnd, safetyFloor])
+  }, [movesChrono, mainBal, otrosSum, today, yearEnd, safetyFloor])
 
   // Punto crítico: día con el balance proyectado más bajo
   const criticalPt = useMemo(() => {
@@ -1026,7 +1051,7 @@ export default function ProjectionsPanel() {
   // sticky bottom-0 dentro de la caja con scroll; fondo sólido para que las filas no se transparenten.
   const proyTotalsBar = (
     <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
-      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(mainBal)}</span></span>
+      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(mainBal)}</span>{otrosSum > 0 && (<button onClick={onOpenOtros} title="Ver en Ajustes \u2192 Proyecciones" className="ml-1 rounded-full bg-emerald-50 px-1.5 py-px align-middle text-[10px] font-bold text-emerald-700 hover:bg-emerald-100">+{num2(otrosSum)} otros</button>)}</span>
       <span className="font-semibold text-slate-500">
         <span className="text-[#16a34a]">+{num2(winInc)}</span>
         {' · '}
@@ -1829,6 +1854,90 @@ export default function ProjectionsPanel() {
       )}
 
 
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Otros fondos (Ajuste → Proyecciones): box con scroll de cuentas con balance
+// positivo (Plaid en vivo). Cada checkmark suma esa cuenta a la proyección.
+// Solo cash; nunca toca el Banco ni los datos reales.
+// ---------------------------------------------------------------------------
+export function OtrosFondosBox() {
+  const [accs, setAccs] = useState<Acct[]>([])
+  const [sel, setSel] = useState<string[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OTROS_KEY)
+      const arr = raw ? JSON.parse(raw) : []
+      if (Array.isArray(arr)) setSel(arr.filter((x) => typeof x === 'string'))
+    } catch {}
+    let stop = false
+    fetch('/api/projections/summary', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((sj) => {
+        if (stop) return
+        const list: Acct[] = ((sj.accounts || []) as any[])
+          .map((x) => ({
+            name: x.name,
+            current_balance: x.current_balance ?? null,
+            institution: x.institution || null,
+            display_order: x.display_order ?? 100,
+          }))
+          .filter((x) => x.name)
+          .sort((a, b) => a.display_order - b.display_order)
+        setAccs(list)
+        setLoaded(true)
+      })
+      .catch(() => setLoaded(true))
+    return () => { stop = true }
+  }, [])
+
+  const val = (a: Acct) => Number(a.current_balance) || 0
+  let mainName = ''
+  try {
+    const s = localStorage.getItem(MAIN_BANK_KEY)
+    if (s && accs.some((a) => a.name === s)) mainName = s
+  } catch {}
+  if (!mainName) mainName = accs.find((a) => a.name === DEFAULT_MAIN)?.name || accs[0]?.name || ''
+  const rows = accs.filter((a) => a.name !== mainName && val(a) > 0)
+
+  const toggle = (name: string) => {
+    const next = sel.includes(name) ? sel.filter((x) => x !== name) : [...sel, name]
+    setSel(next)
+    try { localStorage.setItem(OTROS_KEY, JSON.stringify(next)) } catch {}
+    try { window.dispatchEvent(new Event(OTROS_EVT)) } catch {}
+  }
+
+  const sum = rows.filter((a) => sel.includes(a.name)).reduce((s, a) => s + val(a), 0)
+
+  return (
+    <div className="rounded-2xl border border-[#dce5ef] bg-white p-6 shadow-sm">
+      <h3 className="font-bold">Otros fondos</h3>
+      <p className="mt-1 text-xs text-slate-500">
+        Suma a la proyección el cash de tus otras cuentas. Solo afecta Proyecciones; el Banco no se toca.
+      </p>
+      <div className="mt-4 max-h-56 overflow-y-auto rounded-xl border border-slate-200">
+        {!loaded ? (
+          <p className="px-4 py-6 text-center text-xs text-slate-400">Cargando cuentas…</p>
+        ) : rows.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-slate-400">Ninguna cuenta con balance positivo.</p>
+        ) : (
+          rows.map((a) => (
+            <label key={a.name} className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-2.5 last:border-0 hover:bg-slate-50">
+              <input type="checkbox" checked={sel.includes(a.name)} onChange={() => toggle(a.name)} className="size-4 shrink-0 rounded" />
+              <span className="flex-1 truncate text-sm font-semibold text-slate-700">{shortBank(a)}</span>
+              <span className="whitespace-nowrap font-mono text-sm tabular-nums text-slate-800">{money(val(a))}</span>
+            </label>
+          ))
+        )}
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+        Solo aparecen cuentas con balance positivo (la lista es corta). La cuenta principal de proyecciones no aparece aquí porque ya es la base.
+        {sum > 0 && <span className="font-bold text-[#16a34a]"> Activo: +{money(sum)} en la proyección.</span>}
+      </p>
     </div>
   )
 }

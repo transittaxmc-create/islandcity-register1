@@ -822,6 +822,35 @@ export default function ProjectionsPanel() {
     return m
   }, [dailyRows])
 
+  // Barras de totales fijas al fondo de la caja del register: siempre visibles al hacer scroll.
+  // sticky bottom-0 dentro de la caja con scroll; fondo sólido para que las filas no se transparenten.
+  const proyTotalsBar = (
+    <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
+      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
+      <span className="font-semibold text-slate-500">
+        <span className="text-[#16a34a]">+{num2(winInc)}</span>
+        {' · '}
+        <span className="text-red-500">−{num2(winExp)}</span>
+      </span>
+      <span className={`font-extrabold font-mono tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'}`}>
+        Final {money(grandTotal)}
+      </span>
+    </div>
+  )
+  const bancoTotalsBar = (
+    <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#3b82f6] bg-blue-50 px-4 py-2 text-sm">
+      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
+      <span className="font-semibold text-slate-500">
+        <span className="text-[#16a34a]">+{num2(bancoInc)}</span>
+        {' · '}
+        <span className="text-red-500">−{num2(bancoExp)}</span>
+      </span>
+      <span className={`font-extrabold font-mono tabular-nums ${bankTotal + bancoInc - bancoExp < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+        Final {money(bankTotal + bancoInc - bancoExp)}
+      </span>
+    </div>
+  )
+
   if (loading) {
     return (
       <div>
@@ -1176,6 +1205,7 @@ export default function ProjectionsPanel() {
                 )}
               </tbody>
             </table>
+            {proyTotalsBar}
           </div>
 
           {/* Computadora: register completo */}
@@ -1284,17 +1314,7 @@ export default function ProjectionsPanel() {
                 )}
               </tbody>
             </table>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
-            <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
-            <span className="font-semibold text-slate-500">
-              <span className="text-[#16a34a]">+{num2(winInc)}</span>
-              {' · '}
-              <span className="text-red-500">−{num2(winExp)}</span>
-            </span>
-            <span className={`font-extrabold font-mono tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'}`}>
-              Final {money(grandTotal)}
-            </span>
+            {proyTotalsBar}
           </div>
         </div>
       </section>
@@ -1403,6 +1423,7 @@ export default function ProjectionsPanel() {
                 )}
               </tbody>
             </table>
+            {bancoTotalsBar}
           </div>
 
           {/* Computadora: register completo */}
@@ -1443,17 +1464,7 @@ export default function ProjectionsPanel() {
                 )}
               </tbody>
             </table>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border-t-2 border-[#3b82f6] bg-blue-50/60 px-4 py-2 text-sm">
-            <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(bankTotal)}</span></span>
-            <span className="font-semibold text-slate-500">
-              <span className="text-[#16a34a]">+{num2(bancoInc)}</span>
-              {' · '}
-              <span className="text-red-500">−{num2(bancoExp)}</span>
-            </span>
-            <span className={`font-extrabold font-mono tabular-nums ${bankTotal + bancoInc - bancoExp < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-              Final {money(bankTotal + bancoInc - bancoExp)}
-            </span>
+            {bancoTotalsBar}
           </div>
         </div>
       </section>

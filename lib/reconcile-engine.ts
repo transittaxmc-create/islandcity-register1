@@ -69,7 +69,7 @@ export function matchOne(
   t: RealTx,
   occurrences: ProjOccurrence[]
 ): { status: MatchStatus; ruleId: string | null; occurrenceDate: string | null } {
-  const amt = Math.abs(Number(t.credit) > 0 ? t.credit : t.debit) || 0
+  const amt = Math.abs(Number(Number(t.credit) > 0 ? t.credit : t.debit)) || 0
   if (!amt) return { status: 'UNLINKED', ruleId: null, occurrenceDate: null }
   let suggested: { ruleId: string; occurrenceDate: string } | null = null
   for (const o of occurrences) {

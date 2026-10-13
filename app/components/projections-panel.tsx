@@ -173,7 +173,7 @@ const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
 type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; initialBal: number; chronoBal: number; bankBal: number; ruleId: string | null; kind: 'inc' | 'exp' }
-type DailyRow = { date: string; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
+type DailyRow = { date: string; bankBalance: number; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
 
 // Categorías que son transferencias internas (misma definición que el Estado Bancario)
 const TRANSFER_CATS = ['transfer', 'transferencias internas', 'por verificar']
@@ -788,8 +788,16 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
       else e.outflow += -net
       byDate.set(p.date, e)
     }
+
+    // This column is the bank-only base. It is reconstructed from the same
+    // downloaded transactions shown in the Bank statement, never from rules.
+    const bankNetAfter = (date: string) => bancoVisibleTxs.reduce((sum, t) => {
+      if (t.date <= date) return sum
+      return sum + (Number(t.credit) || 0) - (Number(t.debit) || 0)
+    }, 0)
+
     const rows: DailyRow[] = []
-    let run = mainBal + otrosSum
+    let projectedRun = mainBal + otrosSum
     const d = new Date(today + 'T12:00:00')
     const end = new Date(yearEnd + 'T12:00:00')
     while (d <= end) {
@@ -797,21 +805,26 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
       const e = byDate.get(iso)
       const inflow = e?.inflow || 0
       const outflow = e?.outflow || 0
-      const opening = run
-      run = run + inflow - outflow
+      const opening = projectedRun
+      projectedRun = projectedRun + inflow - outflow
+      const bankBalance = mainBal - bankNetAfter(iso)
+      const closing = bankBalance + otrosSum + rows.reduce((sum, row) => sum + row.net, 0) + inflow - outflow
       rows.push({
         date: iso,
+        bankBalance,
         opening,
         inflow,
         outflow,
         net: inflow - outflow,
-        closing: run,
-        health: run < 0 ? 'bad' : run < safetyFloor ? 'warn' : 'ok',
+        closing,
+        health: closing < 0 ? 'bad' : closing < safetyFloor ? 'warn' : 'ok',
       })
       d.setDate(d.getDate() + 1)
     }
     return rows
-  }, [movesChrono, mainBal, otrosSum, today, yearEnd, safetyFloor])
+  }, [projWin, bancoVisibleTxs, mainBal, otrosSum, today, yearEnd, safetyFloor])
+
+  const dailyByDate = useMemo(() => new Map(dailyRows.map((row) => [row.date, row])), [dailyRows])
 
   // Punto crítico: día con el balance proyectado más bajo
   const criticalPt = useMemo(() => {
@@ -1072,7 +1085,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                     const isProj = r.key.startsWith('pj-')
                     const inc = r.net > 0 ? r.net : 0
                     const exp = r.net < 0 ? -r.net : 0
-                    const health = r.chronoBal < 0 ? 'bad' : r.chronoBal < safetyFloor ? 'warn' : 'ok'
+                    const daily = dailyByDate.get(r.date)
+                    const projectedBalance = daily?.closing ?? r.chronoBal
+                    const health = projectedBalance < 0 ? 'bad' : projectedBalance < safetyFloor ? 'warn' : 'ok'
                     return (
                       <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'}`}>
                         <td className="whitespace-nowrap px-2 py-1.5 align-top tabular-nums text-slate-500">
@@ -1105,8 +1120,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                           <div className={`font-semibold tabular-nums ${inc > 0 ? 'text-[#16a34a]' : exp > 0 ? 'text-red-500' : isProj ? 'text-slate-500' : 'text-slate-300'}`}>
                             {inc > 0 ? `+${num2(inc)}` : exp > 0 ? `−${num2(exp)}` : isProj ? '$0.00' : '—'}
                           </div>
+                          <div className="mt-0.5 text-[10px] tabular-nums text-blue-600">Bank {num2(dailyByDate.get(r.date)?.bankBalance ?? mainBal)}</div>
                           <div className={`font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-900'}`}>
-                            {num2(r.chronoBal)}
+                            Proj {num2(dailyByDate.get(r.date)?.closing ?? r.chronoBal)}
                           </div>
                         </td>
                       </tr>
@@ -1129,7 +1145,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                   <th className="border-b border-slate-200 px-3 py-2 font-medium">Frequency</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Income</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Expense</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Initial balance</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Bank balance</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Projected balance</th>
                 </tr>
               </thead>
@@ -1187,7 +1203,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                     const isProj = r.key.startsWith('pj-')
                     const inc = r.net > 0 ? r.net : 0
                     const exp = r.net < 0 ? -r.net : 0
-                    const health = r.chronoBal < 0 ? 'bad' : r.chronoBal < safetyFloor ? 'warn' : 'ok'
+                    const daily = dailyByDate.get(r.date)
+                    const projectedBalance = daily?.closing ?? r.chronoBal
+                    const health = projectedBalance < 0 ? 'bad' : projectedBalance < safetyFloor ? 'warn' : 'ok'
                     return (
                       <tr key={r.key} className={`border-t border-slate-100 ${isProj ? 'bg-amber-50/40' : 'even:bg-slate-50/60'} hover:bg-blue-50/40`}>
                         <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">
@@ -1217,9 +1235,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                         <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-red-500">
                           {exp > 0 ? `−${num2(exp)}` : isProj && r.kind === 'exp' ? <span className="text-slate-500">$0.00</span> : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{num2(r.initialBal)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-blue-600">{num2(daily?.bankBalance ?? mainBal)}</td>
                         <td className={`whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
-                          {num2(r.chronoBal)}
+                          {num2(projectedBalance)}
                         </td>
                       </tr>
                     )

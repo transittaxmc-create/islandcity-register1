@@ -758,20 +758,18 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
     }
   }, [movesChrono, sortKey])
 
-  // Vista BANCO: solo transacciones reales de los últimos 30 días, con balance corrido (estilo statement)
-  const bancoVisibleTxs = useMemo(
-    () => (hideTransfers ? bancoTxs.filter((t) => !isTransferCat(t.category)) : bancoTxs),
-    [bancoTxs, hideTransfers]
-  )
+  // Estado bancario: únicamente transacciones reales descargadas del banco.
+  // El current_balance ya incluye esas transacciones, por eso el saldo histórico
+  // se reconstruye hacia atrás y nunca se vuelve a sumar sobre el saldo actual.
+  const bancoVisibleTxs = useMemo(() => bancoTxs, [bancoTxs])
   const bancoRows = useMemo(() => {
     const arr = [...bancoVisibleTxs].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
-    // balance corrido cronológico (de atrás hacia adelante) y luego se muestra más reciente arriba
-    const chrono = [...bancoVisibleTxs].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    const reverseChrono = [...arr]
     const balById = new Map<string, number>()
     let run = mainBal
-    for (const t of chrono) {
-      run += (Number(t.credit) || 0) - (Number(t.debit) || 0)
+    for (const t of reverseChrono) {
       balById.set(t.id, run)
+      run -= (Number(t.credit) || 0) - (Number(t.debit) || 0)
     }
     return arr.map((t) => ({ ...t, bal: balById.get(t.id) ?? mainBal }))
   }, [bancoVisibleTxs, mainBal])
@@ -779,14 +777,16 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   const bancoInc = useMemo(() => bancoVisibleTxs.reduce((s, t) => s + (Number(t.credit) || 0), 0), [bancoVisibleTxs])
   const bancoExp = useMemo(() => bancoVisibleTxs.reduce((s, t) => s + (Number(t.debit) || 0), 0), [bancoVisibleTxs])
 
-  // Ledger diario: una fila por día (hoy → 31 dic) con apertura, flujo y cierre proyectado
+  // Registro de proyecciones: parte del balance real del banco y solo aplica
+  // ingresos/gastos proyectados. Las transacciones reales se muestran aparte.
   const dailyRows: DailyRow[] = useMemo(() => {
     const byDate = new Map<string, { inflow: number; outflow: number }>()
-    for (const m of movesChrono) {
-      const e = byDate.get(m.date) || { inflow: 0, outflow: 0 }
-      if (m.net >= 0) e.inflow += m.net
-      else e.outflow += -m.net
-      byDate.set(m.date, e)
+    for (const p of projWin) {
+      const net = (Number(p.credit) || 0) - (Number(p.debit) || 0)
+      const e = byDate.get(p.date) || { inflow: 0, outflow: 0 }
+      if (net >= 0) e.inflow += net
+      else e.outflow += -net
+      byDate.set(p.date, e)
     }
     const rows: DailyRow[] = []
     let run = mainBal + otrosSum

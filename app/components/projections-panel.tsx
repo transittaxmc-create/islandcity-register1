@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { PlatformAvatar } from './platform-logo'
 
 type Acct = { name: string; current_balance: number | null; institution: string | null; display_order: number }
 type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; category: string; debit: number; credit: number }
@@ -216,7 +217,6 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   const DAILY_DRAFT_KEY = 'daily-draft-v1'
   const DAILY_CLOSE_KEY = 'daily-closes-v1'
   const DAILY_CAT = 'Dep\u00f3sito plataforma'
-  const DNEW_PLAT = '__nueva_plataforma__'
   type DraftEntry = { id: string; platform: string; amount: number }
   type CloseItem = { platform: string; total: number; payDate: string; ruleId: string; status: 'pending' | 'fulfilled'; realAmount?: number; realTxId?: string; matchedAt?: string }
   type CloseRec = { workDate: string; closedAt: string; items: CloseItem[] }
@@ -1249,33 +1249,52 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
             <p className="text-[11px] text-slate-400">Today's entries · {fmtD(draftWorkDate)}{draftWorkDate !== today ? ' (not closed)' : ''}</p>
           </div>
 
-          {/* Entrada rápida: plataforma + monto */}
-          <div className="mt-2 grid grid-cols-[1fr_92px_auto] items-center gap-1.5">
-            {dPlatNewMode ? (
-              <input
-                value={dPlatNew}
-                onChange={(e) => setDPlatNew(e.target.value)}
-                placeholder="New platform…"
-                autoFocus
-                title="New platform"
-                className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-              />
-            ) : (
-              <select
-                value={dPlat}
-                onChange={(e) => {
-                  const v = e.target.value
-                  if (v === DNEW_PLAT) { setDPlatNewMode(true); setDPlatNew('') }
-                  else setDPlat(v)
-                }}
-                title="Platform"
-                className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
+          {/* Platform picker: logo grid */}
+          <div className="mt-2">
+            <div className="grid max-h-[136px] grid-cols-3 gap-1.5 overflow-y-auto overscroll-contain">
+              {venOptions.map((v) => {
+                const sel = !dPlatNewMode && dPlat === v
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => { setDPlat(v); setDPlatNewMode(false) }}
+                    title={v}
+                    className={`flex min-w-0 flex-col items-center gap-1 rounded-lg border px-1 py-1.5 ${sel ? 'border-[#16a34a] bg-green-50' : 'border-slate-200 bg-white'}`}
+                  >
+                    <PlatformAvatar platform={v} size={28} />
+                    <span className="w-full truncate text-center text-[10px] font-semibold text-slate-600">{v}</span>
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                onClick={() => { setDPlatNewMode(true); setDPlatNew('') }}
+                title="Add new platform"
+                className="flex min-w-0 flex-col items-center gap-1 rounded-lg border border-dashed border-slate-300 bg-white px-1 py-1.5"
               >
-                <option value="" disabled>— Platform —</option>
-                {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
-                <option value={DNEW_PLAT}>+ Add new platform</option>
-              </select>
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-slate-100 text-sm font-bold leading-none text-slate-500">+</span>
+                <span className="text-[10px] font-semibold text-slate-500">New</span>
+              </button>
+            </div>
+            {dPlatNewMode && (
+              <div className="mt-1.5 flex gap-1.5">
+                <input
+                  value={dPlatNew}
+                  onChange={(e) => setDPlatNew(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addDraft() }}
+                  placeholder="New platform…"
+                  autoFocus
+                  title="New platform"
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                />
+                <button onClick={() => { setDPlatNewMode(false); setDPlatNew('') }} className="shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-bold text-slate-400">Cancel</button>
+              </div>
             )}
+          </div>
+
+          {/* Quick entry: amount */}
+          <div className="mt-2 grid grid-cols-[1fr_auto] items-center gap-1.5">
             <input
               type="number"
               inputMode="decimal"
@@ -1287,22 +1306,18 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               title="Amount"
               className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-xs font-semibold tabular-nums"
             />
-            <button onClick={addDraft} disabled={dailyBusy} title="Add entry" className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#16a34a] text-base font-bold leading-none text-white disabled:opacity-40">+</button>
+            <button onClick={addDraft} disabled={dailyBusy} title="Add entry" className="shrink-0 rounded-lg bg-[#16a34a] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">+ Add</button>
           </div>
-          {dPlatNewMode && (
-            <div className="mt-1 flex justify-end">
-              <button onClick={() => { setDPlatNewMode(false); setDPlatNew('') }} className="text-[11px] font-semibold text-slate-400">Cancel</button>
-            </div>
-          )}
 
           {/* Lista del día: editable */}
-          <div className="mt-2 max-h-[180px] overflow-y-auto overscroll-contain rounded-lg border border-slate-100">
+          <div className="mt-2 max-h-[108px] overflow-y-auto overscroll-contain rounded-lg border border-slate-100">
             {drafts.length === 0 ? (
               <p className="px-3 py-4 text-center text-xs text-slate-400">No entries today. Add each job above.</p>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {drafts.map((d) => (
                   <li key={d.id} className="flex items-center gap-2 px-2 py-1.5">
+                    <PlatformAvatar platform={d.platform} size={22} />
                     {dEditPlatId === d.id ? (
                       <select
                         autoFocus
@@ -1349,6 +1364,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               <ul className="mt-1 space-y-1">
                 {closeTotals.map((x) => (
                   <li key={x.platform} className="flex items-center gap-2">
+                    <PlatformAvatar platform={x.platform} size={18} />
                     <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-600">{x.platform} · <span className="tabular-nums">{money(x.total)}</span></span>
                     <input type="date" value={payDates[x.platform] || today} onChange={(e) => setPayDates((pr) => ({ ...pr, [x.platform]: e.target.value }))} title="Pay date" className="shrink-0 rounded border border-slate-200 px-1 py-1 text-xs" />
                   </li>
@@ -1369,7 +1385,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                 {dailyPending.map((r) => (
                   <li key={String(r.id)} className="rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5">
                     <div className="flex items-center gap-2">
-                      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">🔮 {r.platform}</span>
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5"><PlatformAvatar platform={r.platform} size={20} /><span className="truncate text-xs font-semibold text-slate-700">🔮 {r.platform}</span></span>
                       <span className="shrink-0 text-xs font-bold tabular-nums text-slate-800">{money(r.amount)}</span>
                       <span className="shrink-0 text-[10px] tabular-nums text-slate-500">{fmtD(String(r.pay_day))}</span>
                       <button onClick={() => { setMatchRuleId(String(r.id)); setMatchTxId('') }} title="Match with actual bank deposit" className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600 shadow-sm">Match</button>
@@ -1417,7 +1433,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                       <p className="text-[11px] font-bold text-slate-600">{fmtD(c.workDate)}{c.workDate === today ? ' (hoy)' : ''}</p>
                       {c.items.map((it, j) => (
                         <p key={j} className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                          <span className="min-w-0 truncate">{it.platform} → {fmtD(it.payDate)}</span>
+                          <span className="flex min-w-0 items-center gap-1.5"><PlatformAvatar platform={it.platform} size={16} /><span className="truncate">{it.platform} → {fmtD(it.payDate)}</span></span>
                           <span className="shrink-0 tabular-nums">
                             {money(it.total)}
                             {it.status === 'fulfilled'

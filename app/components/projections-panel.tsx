@@ -212,30 +212,54 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   const NEW_CAT = '__nueva_categoria__'
   const NEW_VEN = '__nuevo_vendedor__'
 
-  // ============ DAILY: entrada diaria de trabajos ============
+  // ============ DAILY ENTRY REGISTER ============
   const DAILY_PREFIX = 'DAILY \u00b7 '
   const DAILY_DRAFT_KEY = 'daily-draft-v1'
   const DAILY_CLOSE_KEY = 'daily-closes-v1'
   const DAILY_CAT = 'Dep\u00f3sito plataforma'
-  type DraftEntry = { id: string; platform: string; amount: number }
-  type CloseItem = { platform: string; total: number; payDate: string; ruleId: string; status: 'pending' | 'fulfilled'; realAmount?: number; realTxId?: string; matchedAt?: string }
+  type DailyEntry = { id: string; platform: string; amount: number; time: string; depositDate: string }
+  type CloseItem = { platform: string; total: number; payDate: string; ruleId: string; status: 'pending' | 'fulfilled'; realAmount?: number; realTxId?: string; matchedAt?: string; gkey: string; entries: DailyEntry[] }
   type CloseRec = { workDate: string; closedAt: string; items: CloseItem[] }
+  type RegStatus = 'pending' | 'matched' | 'difference'
   const [draftWorkDate, setDraftWorkDate] = useState(today)
-  const [drafts, setDrafts] = useState<DraftEntry[]>([])
+  const [drafts, setDrafts] = useState<DailyEntry[]>([])
   const [dPlat, setDPlat] = useState('')
   const [dPlatNewMode, setDPlatNewMode] = useState(false)
   const [dPlatNew, setDPlatNew] = useState('')
   const [dAmt, setDAmt] = useState('')
+  const [dDepDate, setDDepDate] = useState(today)
   const [dEditId, setDEditId] = useState<string | null>(null)
   const [dEditAmt, setDEditAmt] = useState('')
   const [dEditPlatId, setDEditPlatId] = useState<string | null>(null)
   const [closing, setClosing] = useState(false)
-  const [payDates, setPayDates] = useState<Record<string, string>>({})
   const [closes, setCloses] = useState<CloseRec[]>([])
   const [showHist, setShowHist] = useState(false)
   const [matchRuleId, setMatchRuleId] = useState<string | null>(null)
   const [matchTxId, setMatchTxId] = useState('')
   const [dailyBusy, setDailyBusy] = useState(false)
+  const [dailyFilter, setDailyFilter] = useState<'all' | RegStatus>('all')
+
+  // Distintivo de plataforma (como en la app de referencia): ACCESS-A-RIDE / VOUCHER.
+  const platformBadge = (platform: string): { label: string; cls: string } | null => {
+    const p = String(platform || '').trim().toLowerCase()
+    if (p === 'eco ride' || p === 'aki technology') return { label: 'ACCESS-A-RIDE', cls: 'border-sky-400/60 text-sky-500' }
+    if (p === 'classic ryde' || p === 'aventus ride') return { label: 'VOUCHER', cls: 'border-orange-400/60 text-orange-500' }
+    return null
+  }
+
+  const nowHM = () => {
+    const d = new Date()
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+
+  // Llave de agrupación por (plataforma, fecha de depósito) para el cierre.
+  const groupKeyOf = (platform: string, depositDate: string) => `${platform}||${depositDate}`
+
+  // Estado de un grupo cerrado: pending → matched / difference (vs. monto real).
+  const groupStatus = (it: CloseItem): RegStatus => {
+    if (it.status !== 'fulfilled') return 'pending'
+    return Math.abs((it.total || 0) - (it.realAmount || 0)) >= 0.005 ? 'difference' : 'matched'
+  }
 
   // Preferencias guardadas: banco principal + balances corregidos + mínimo + ocultar transfers
   useEffect(() => {
@@ -579,14 +603,48 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           setDrafts(
             d.items
               .filter((x: any) => x && String(x.platform || '').trim() && Number(x.amount) > 0)
-              .map((x: any) => ({ id: String(x.id), platform: String(x.platform), amount: Number(x.amount) }))
+              .map((x: any) => ({
+                id: String(x.id),
+                platform: String(x.platform),
+                amount: Number(x.amount),
+                time: typeof x.time === 'string' ? x.time : '',
+                depositDate: /^\d{4}-\d{2}-\d{2}$/.test(String(x.depositDate || '')) ? String(x.depositDate) : today,
+              }))
           )
         }
       }
       const rc = localStorage.getItem(DAILY_CLOSE_KEY)
       if (rc) {
         const arr = JSON.parse(rc)
-        if (Array.isArray(arr)) setCloses(arr.filter((c: any) => c && Array.isArray(c.items)))
+        if (Array.isArray(arr))
+          setCloses(
+            arr
+              .filter((c: any) => c && Array.isArray(c.items))
+              .map((c: any) => ({
+                workDate: String(c.workDate || ''),
+                closedAt: String(c.closedAt || ''),
+                items: (c.items as any[]).map((it: any) => ({
+                  platform: String(it.platform || ''),
+                  total: Number(it.total) || 0,
+                  payDate: String(it.payDate || ''),
+                  ruleId: String(it.ruleId || ''),
+                  status: it.status === 'fulfilled' ? 'fulfilled' : 'pending',
+                  realAmount: it.realAmount != null ? Number(it.realAmount) : undefined,
+                  realTxId: it.realTxId != null ? String(it.realTxId) : undefined,
+                  matchedAt: it.matchedAt != null ? String(it.matchedAt) : undefined,
+                  gkey: typeof it.gkey === 'string' && it.gkey ? it.gkey : `${String(it.platform || '')}||${String(it.payDate || '')}`,
+                  entries: Array.isArray(it.entries)
+                    ? it.entries.map((e: any) => ({
+                        id: String(e.id || ''),
+                        platform: String(e.platform || it.platform || ''),
+                        amount: Number(e.amount) || 0,
+                        time: typeof e.time === 'string' ? e.time : '',
+                        depositDate: /^\d{4}-\d{2}-\d{2}$/.test(String(e.depositDate || '')) ? String(e.depositDate) : String(it.payDate || ''),
+                      }))
+                    : [],
+                })),
+              }))
+          )
       }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -612,11 +670,24 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
     if (!plat || amt <= 0 || dailyBusy) return
     await persistList('vendors', plat)
     const id = `d${Date.now()}${Math.floor(Math.random() * 1000)}`
-    setDrafts((prev) => [...prev, { id, platform: plat, amount: amt }])
+    const dep = /^\d{4}-\d{2}-\d{2}$/.test(dDepDate) ? dDepDate : today
+    setDrafts((prev) => [...prev, { id, platform: plat, amount: amt, time: nowHM(), depositDate: dep }])
     setDPlat('')
     setDPlatNew('')
     setDPlatNewMode(false)
     setDAmt('')
+    setDDepDate(today)
+  }
+
+  const setEntryDepDate = (id: string, date: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return
+    setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, depositDate: date } : d)))
+  }
+
+  // Cambiar la fecha de depósito de todo un grupo del cierre.
+  const setGroupDepDate = (gkey: string, date: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return
+    setDrafts((prev) => prev.map((d) => (groupKeyOf(d.platform, d.depositDate) === gkey ? { ...d, depositDate: date } : d)))
   }
 
   const delDraft = (id: string) => setDrafts((prev) => prev.filter((d) => d.id !== id))
@@ -628,53 +699,60 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
     setDEditAmt('')
   }
 
-  // Totales por plataforma para el cierre.
-  const closeTotals = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const d of drafts) m.set(d.platform, (m.get(d.platform) || 0) + (Number(d.amount) || 0))
+  // Grupos por (plataforma, fecha de depósito) para el cierre.
+  const closeGroups = useMemo(() => {
+    const m = new Map<string, { platform: string; depositDate: string; total: number; entries: DailyEntry[] }>()
+    for (const d of drafts) {
+      const dep = /^\d{4}-\d{2}-\d{2}$/.test(d.depositDate) ? d.depositDate : today
+      const gkey = groupKeyOf(d.platform, dep)
+      const g = m.get(gkey) || { platform: d.platform, depositDate: dep, total: 0, entries: [] as DailyEntry[] }
+      g.total += Number(d.amount) || 0
+      g.entries.push({ ...d, depositDate: dep })
+      m.set(gkey, g)
+    }
     return [...m.entries()]
-      .map(([platform, total]) => ({ platform, total }))
-      .sort((a, b) => a.platform.localeCompare(b.platform, 'es'))
-  }, [drafts])
+      .map(([gkey, g]) => ({ gkey, ...g }))
+      .sort((a, b) => a.depositDate.localeCompare(b.depositDate) || a.platform.localeCompare(b.platform, 'es'))
+  }, [drafts, today])
 
   const openClose = () => {
     if (drafts.length === 0 || dailyBusy) return
-    const pd: Record<string, string> = {}
-    for (const x of closeTotals) pd[x.platform] = today
-    setPayDates(pd)
     setClosing(true)
   }
 
-  // Cerrar el día: crea un depósito pendiente (pago único) por plataforma en Proyecciones.
+  // Cerrar el día: agrega por (plataforma, fecha de depósito) y crea un depósito
+  // pendiente (pago único) por grupo en Proyecciones. Las entradas quedan
+  // bloqueadas en el DAILY (solo lectura); ediciones posteriores, en Proyecciones.
   const confirmClose = async () => {
-    if (dailyBusy || closeTotals.length === 0) return
+    if (dailyBusy || closeGroups.length === 0) return
     setDailyBusy(true)
     try {
       await persistList('categories', DAILY_CAT)
       const items: CloseItem[] = []
-      for (const x of closeTotals) {
-        const rawDate = payDates[x.platform] || today
-        const payDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : today
+      for (const g of closeGroups) {
+        const payDate = /^\d{4}-\d{2}-\d{2}$/.test(g.depositDate) ? g.depositDate : today
+        const total = Math.round(g.total * 100) / 100
         const res = await fetch('/api/reconcile/data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             entry_type: 'proyectado',
             date: payDate,
-            detail: `${DAILY_PREFIX}${x.platform}`,
+            detail: `${DAILY_PREFIX}${g.platform}`,
             category: DAILY_CAT,
             frequency: 'Un solo pago',
             debit: 0,
-            credit: x.total,
+            credit: total,
           }),
         }).then((r) => r.json())
         if (res?.error) throw new Error(res.error)
-        items.push({ platform: x.platform, total: x.total, payDate, ruleId: String(res?.rule?.id || ''), status: 'pending' })
+        items.push({ platform: g.platform, total, payDate, ruleId: String(res?.rule?.id || ''), status: 'pending', gkey: g.gkey, entries: g.entries })
       }
       const rec: CloseRec = { workDate: draftWorkDate, closedAt: new Date().toISOString(), items }
       setCloses((prev) => [rec, ...prev].slice(0, 60))
       setDrafts([])
       setDraftWorkDate(today)
+      setDDepDate(today)
       setClosing(false)
       await refreshSummary(true)
     } catch {
@@ -683,6 +761,62 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
       setDailyBusy(false)
     }
   }
+
+  // Entradas bloqueadas (enviadas) del día de trabajo actual: solo lectura.
+  const lockedToday = useMemo(() => {
+    const out: { e: DailyEntry; st: RegStatus }[] = []
+    for (const c of closes) {
+      if (c.workDate !== draftWorkDate) continue
+      for (const it of c.items || []) {
+        const st = groupStatus(it)
+        for (const e of it.entries || []) out.push({ e, st })
+      }
+    }
+    return out
+  }, [closes, draftWorkDate])
+
+  // Register del día: borradores abiertos (editables) + entradas enviadas (bloqueadas).
+  const regEntries = useMemo(
+    () => [
+      ...drafts.map((e) => ({ e, st: 'pending' as RegStatus, locked: false })),
+      ...lockedToday.map((x) => ({ e: x.e, st: x.st, locked: true })),
+    ],
+    [drafts, lockedToday]
+  )
+
+  const regCounts = useMemo(() => {
+    let pending = 0, matched = 0, difference = 0
+    for (const r of regEntries) {
+      if (r.st === 'pending') pending++
+      else if (r.st === 'matched') matched++
+      else difference++
+    }
+    return { all: regEntries.length, pending, matched, difference }
+  }, [regEntries])
+
+  const regGross = useMemo(() => regEntries.reduce((s, r) => s + (Number(r.e.amount) || 0), 0), [regEntries])
+
+  const regFiltered = useMemo(
+    () => (dailyFilter === 'all' ? regEntries : regEntries.filter((r) => r.st === dailyFilter)),
+    [regEntries, dailyFilter]
+  )
+
+  // Bloques por plataforma (sobre lo filtrado).
+  const regGroups = useMemo(() => {
+    const m = new Map<string, { platform: string; entries: { e: DailyEntry; st: RegStatus; locked: boolean }[] }>()
+    for (const r of regFiltered) {
+      const g = m.get(r.e.platform) || { platform: r.e.platform, entries: [] as { e: DailyEntry; st: RegStatus; locked: boolean }[] }
+      g.entries.push(r)
+      m.set(r.e.platform, g)
+    }
+    return [...m.values()]
+      .map((g) => {
+        const gross = g.entries.reduce((s, r) => s + (Number(r.e.amount) || 0), 0)
+        const unpaid = g.entries.filter((r) => r.st === 'pending').length
+        return { ...g, gross, net: gross, unpaid, count: g.entries.length }
+      })
+      .sort((a, b) => a.platform.localeCompare(b.platform, 'es'))
+  }, [regFiltered])
 
   // Depósitos pendientes del Daily: pagos únicos de ingreso con prefijo DAILY.
   const dailyPending = useMemo(
@@ -1244,12 +1378,44 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
         </div>
 
         <div className={`${card} xl:col-span-2`}>
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className={h3}>Daily</h3>
-            <p className="text-[11px] text-slate-400">Today's entries · {fmtD(draftWorkDate)}{draftWorkDate !== today ? ' (not closed)' : ''}</p>
+          {/* ============ DAILY ENTRY REGISTER ============ */}
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className={h3}>DAILY Entry Register</h3>
+            <span className="rounded-full border border-orange-400/70 px-2 py-0.5 text-[10px] font-bold text-orange-500">DAY OPEN</span>
+            {draftWorkDate !== today && (
+              <span className="text-[11px] text-slate-400">· {fmtD(draftWorkDate)} (not closed)</span>
+            )}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="font-bold tracking-wide text-slate-500">GROSS <span className="font-extrabold tabular-nums text-amber-500">{money(regGross)}</span></span>
+            <span className="font-bold tracking-wide text-slate-500">NET <span className="font-extrabold tabular-nums text-[#16a34a]">{money(regGross)}</span></span>
+            {regCounts.pending > 0 ? (
+              <span className="rounded-full border border-orange-400/70 px-2 py-0.5 text-[10px] font-bold text-orange-500">{regCounts.pending} PENDING</span>
+            ) : regCounts.all > 0 ? (
+              <span className="rounded-full border border-green-500/70 px-2 py-0.5 text-[10px] font-bold text-green-600">ALL MATCHED</span>
+            ) : null}
           </div>
 
-          {/* Platform picker: logo grid */}
+          {/* Filtros */}
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {([
+              ['all', `ALL ${regCounts.all}`],
+              ['pending', `PENDING ${regCounts.pending}`],
+              ['matched', `MATCHED ${regCounts.matched}`],
+              ['difference', `DIFFERENCE ${regCounts.difference}`],
+            ] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setDailyFilter(k)}
+                className={`rounded-full px-3 py-1 text-[11px] font-bold ${dailyFilter === k ? 'bg-amber-400 text-black' : 'bg-slate-100 text-slate-500'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Entrada rápida */}
           <div className="mt-2">
             <div className="grid max-h-[136px] grid-cols-3 gap-1.5 overflow-y-auto overscroll-contain">
               {venOptions.map((v) => {
@@ -1291,82 +1457,164 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                 <button onClick={() => { setDPlatNewMode(false); setDPlatNew('') }} className="shrink-0 rounded-lg px-2 py-1.5 text-[11px] font-bold text-slate-400">Cancel</button>
               </div>
             )}
+            <div className="mt-1.5 grid grid-cols-[1fr_auto] gap-1.5">
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                value={dAmt}
+                onChange={(e) => setDAmt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addDraft() }}
+                placeholder="$ 0.00"
+                title="Amount"
+                className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-xs font-semibold tabular-nums"
+              />
+              <input
+                type="date"
+                value={dDepDate}
+                onChange={(e) => setDDepDate(e.target.value)}
+                title="Deposit date"
+                className="shrink-0 rounded-lg border border-slate-200 px-1.5 py-1.5 text-xs text-slate-600"
+              />
+            </div>
+            <button
+              onClick={addDraft}
+              disabled={dailyBusy || !(dPlatNewMode ? dPlatNew.trim() : dPlat).trim() || !(Math.abs(Number(dAmt) || 0) > 0)}
+              title="Add entry"
+              className="mt-1.5 w-full rounded-xl bg-amber-400 py-2.5 text-sm font-extrabold tracking-wide text-black disabled:opacity-40"
+            >+ ADD ENTRY</button>
           </div>
 
-          {/* Quick entry: amount */}
-          <div className="mt-2 grid grid-cols-[1fr_auto] items-center gap-1.5">
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              value={dAmt}
-              onChange={(e) => setDAmt(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addDraft() }}
-              placeholder="$ 0.00"
-              title="Amount"
-              className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-xs font-semibold tabular-nums"
-            />
-            <button onClick={addDraft} disabled={dailyBusy} title="Add entry" className="shrink-0 rounded-lg bg-[#16a34a] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">+ Add</button>
-          </div>
-
-          {/* Lista del día: editable */}
-          <div className="mt-2 max-h-[108px] overflow-y-auto overscroll-contain rounded-lg border border-slate-100">
-            {drafts.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-slate-400">No entries today. Add each job above.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {drafts.map((d) => (
-                  <li key={d.id} className="flex items-center gap-2 px-2 py-1.5">
-                    <PlatformAvatar platform={d.platform} size={22} />
-                    {dEditPlatId === d.id ? (
-                      <select
-                        autoFocus
-                        value={d.platform}
-                        onChange={(e) => { setDrafts((prev) => prev.map((x) => (x.id === d.id ? { ...x, platform: e.target.value } : x))); setDEditPlatId(null) }}
-                        onBlur={() => setDEditPlatId(null)}
-                        className="min-w-0 flex-1 rounded border border-slate-200 px-1 py-1 text-xs"
-                      >
-                        {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
-                      </select>
-                    ) : (
-                      <button onClick={() => setDEditPlatId(d.id)} title="Change platform" className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-slate-700">{d.platform}</button>
+          {/* Register: bloques por plataforma */}
+          <div className="mt-2 max-h-[430px] space-y-2 overflow-y-auto overscroll-contain pr-0.5">
+            {regGroups.length === 0 ? (
+              <p className="rounded-xl border border-slate-100 px-3 py-6 text-center text-xs text-slate-400">
+                {regEntries.length === 0 ? 'No entries today. Add each job above.' : 'No entries match this filter.'}
+              </p>
+            ) : regGroups.map((g) => {
+              const badge = platformBadge(g.platform)
+              return (
+                <section key={g.platform} className="rounded-2xl border border-slate-200 bg-white p-2">
+                  <header className="flex items-center gap-2 px-1">
+                    <PlatformAvatar platform={g.platform} size={26} />
+                    <span className="truncate text-sm font-bold text-slate-800">{g.platform}</span>
+                    {badge && (
+                      <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase leading-none ${badge.cls}`}>{badge.label}</span>
                     )}
-                    {dEditId === d.id ? (
-                      <input
-                        autoFocus
-                        type="number"
-                        inputMode="decimal"
-                        value={dEditAmt}
-                        onChange={(e) => setDEditAmt(e.target.value)}
-                        onBlur={() => saveDraftAmt(d.id)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') saveDraftAmt(d.id) }}
-                        className="w-20 shrink-0 rounded border border-slate-200 px-1 py-1 text-right text-xs font-semibold tabular-nums"
-                      />
-                    ) : (
-                      <button onClick={() => { setDEditId(d.id); setDEditAmt(String(d.amount)) }} title="Edit amount" className="shrink-0 text-xs font-bold tabular-nums text-slate-700">{money(d.amount)}</button>
-                    )}
-                    <button onClick={() => delDraft(d.id)} title="Delete entry" className="grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold text-slate-300 hover:bg-red-50 hover:text-red-500">✕</button>
-                  </li>
-                ))}
-              </ul>
-            )}
+                    <span className="grid size-5 shrink-0 place-items-center rounded-full border border-slate-300 text-[10px] font-bold text-slate-500">{g.count}</span>
+                    <span className="ml-auto shrink-0 text-[11px] text-slate-400">{g.unpaid} unpaid</span>
+                  </header>
+                  <p className="mt-0.5 px-1 text-[11px] text-slate-500">
+                    Gross <b className="tabular-nums text-amber-600">{money(g.gross)}</b>
+                    <span className="mx-1 text-slate-300">·</span>
+                    Net <b className="tabular-nums text-green-600">{money(g.net)}</b>
+                  </p>
+                  <div className="mt-1.5 space-y-1.5">
+                    {g.entries.map(({ e, st, locked }) => {
+                      const ebadge = platformBadge(e.platform)
+                      return (
+                        <div key={e.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-2">
+                          <div className="flex items-center gap-2">
+                            <PlatformAvatar platform={e.platform} size={30} />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                {locked ? (
+                                  <span className="truncate text-xs font-bold text-slate-800">{e.platform}</span>
+                                ) : dEditPlatId === e.id ? (
+                                  <select
+                                    autoFocus
+                                    value={e.platform}
+                                    onChange={(ev) => { setDrafts((prev) => prev.map((x) => (x.id === e.id ? { ...x, platform: ev.target.value } : x))); setDEditPlatId(null) }}
+                                    onBlur={() => setDEditPlatId(null)}
+                                    className="min-w-0 max-w-full rounded border border-slate-200 px-1 py-0.5 text-xs font-bold"
+                                  >
+                                    {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
+                                  </select>
+                                ) : (
+                                  <button onClick={() => setDEditPlatId(e.id)} title="Change platform" className="truncate text-left text-xs font-bold text-slate-800">{e.platform}</button>
+                                )}
+                                {ebadge && (
+                                  <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase leading-none ${ebadge.cls}`}>{ebadge.label}</span>
+                                )}
+                              </div>
+                              <p className="mt-0.5 text-[10px] tabular-nums text-slate-400">{e.time || '–'}</p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              {dEditId === e.id && !locked ? (
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  inputMode="decimal"
+                                  value={dEditAmt}
+                                  onChange={(ev) => setDEditAmt(ev.target.value)}
+                                  onBlur={() => saveDraftAmt(e.id)}
+                                  onKeyDown={(ev) => { if (ev.key === 'Enter') saveDraftAmt(e.id) }}
+                                  className="w-20 rounded border border-slate-200 px-1 py-0.5 text-right text-xs font-bold tabular-nums"
+                                />
+                              ) : (
+                                <button
+                                  onClick={() => { if (!locked) { setDEditId(e.id); setDEditAmt(String(e.amount)) } }}
+                                  title={locked ? 'Amount (locked — edit in Projections)' : 'Edit amount'}
+                                  className="text-sm font-extrabold tabular-nums text-[#16a34a]"
+                                >{money(e.amount)}</button>
+                              )}
+                            </div>
+                            {!locked && (
+                              <button onClick={() => delDraft(e.id)} title="Delete entry" className="grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold text-slate-300 hover:bg-red-50 hover:text-red-500">✕</button>
+                            )}
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            {locked ? (
+                              <span className="text-[10px] tabular-nums text-slate-400">Dep {fmtD(e.depositDate)} · <span className="font-bold text-slate-400">SENT</span></span>
+                            ) : (
+                              <label className="flex items-center gap-1 text-[10px] text-slate-400">
+                                Dep
+                                <input
+                                  type="date"
+                                  value={e.depositDate}
+                                  onChange={(ev) => setEntryDepDate(e.id, ev.target.value)}
+                                  title="Deposit date"
+                                  className="rounded border border-slate-200 px-1 py-0.5 text-[10px] tabular-nums text-slate-500"
+                                />
+                              </label>
+                            )}
+                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase ${
+                              st === 'matched' ? 'border-green-500/60 text-green-600'
+                              : st === 'difference' ? 'border-red-400/60 text-red-500'
+                              : 'border-orange-400/60 text-orange-500'
+                            }`}>{st === 'matched' ? 'Matched' : st === 'difference' ? 'Difference' : 'Pending'}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              )
+            })}
           </div>
 
+          {/* Total + cierre */}
           <div className="mt-2 flex items-center justify-between gap-2">
             <span className="text-xs font-semibold text-slate-500">Day total <span className="font-bold tabular-nums text-slate-800">{money(draftTotal)}</span></span>
             <button onClick={openClose} disabled={drafts.length === 0 || dailyBusy} className="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">Close day</button>
           </div>
 
-          {/* Cierre: fecha de pago por plataforma */}
+          {/* Cierre: grupos por (plataforma, fecha de depósito) */}
           {closing && (
             <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-              <p className="text-xs font-bold text-slate-700">Pay date per platform</p>
+              <p className="text-xs font-bold text-slate-700">Confirm close — deposits to Projections</p>
               <ul className="mt-1 space-y-1">
-                {closeTotals.map((x) => (
-                  <li key={x.platform} className="flex items-center gap-2">
+                {closeGroups.map((x) => (
+                  <li key={x.gkey} className="flex items-center gap-2">
                     <PlatformAvatar platform={x.platform} size={18} />
-                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-600">{x.platform} · <span className="tabular-nums">{money(x.total)}</span></span>
-                    <input type="date" value={payDates[x.platform] || today} onChange={(e) => setPayDates((pr) => ({ ...pr, [x.platform]: e.target.value }))} title="Pay date" className="shrink-0 rounded border border-slate-200 px-1 py-1 text-xs" />
+                    <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-600">{x.platform} · <span className="tabular-nums">{money(x.total)}</span> <span className="font-normal text-slate-400">({x.entries.length})</span></span>
+                    <input
+                      type="date"
+                      value={x.depositDate}
+                      onChange={(e) => setGroupDepDate(x.gkey, e.target.value)}
+                      title="Deposit date"
+                      className="shrink-0 rounded border border-slate-200 px-1 py-1 text-xs"
+                    />
                   </li>
                 ))}
               </ul>

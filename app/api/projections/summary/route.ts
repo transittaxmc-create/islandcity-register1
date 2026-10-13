@@ -26,9 +26,29 @@ export async function GET() {
     const first = monthRange(YMS[0])
     const lastM = monthRange(YMS[YMS.length - 1])
 
-    const [{ data: accs }, { data: txs }, { data: rules }, { data: links }] = await Promise.all([
+    // Paginado: PostgREST recorta a ~1000 filas por defecto; ene–oct 2026 supera las 3,300.
+    const txs: any[] = []
+    {
+      const PAGE = 1000
+      let from = 0
+      for (;;) {
+        const { data, error } = await sb.from('bank_transactions')
+          .select('*')
+          .eq('entry_type', 'real')
+          .gte('date', first.start)
+          .lte('date', lastM.end)
+          .order('date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1)
+        if (error) throw error
+        txs.push(...(data || []))
+        if (!data || data.length < PAGE) break
+        from += PAGE
+      }
+    }
+
+    const [{ data: accs }, { data: rules }, { data: links }] = await Promise.all([
       sb.from('bank_accounts').select('name,current_balance,institution,display_order').order('display_order').order('name'),
-      sb.from('bank_transactions').select('*').eq('entry_type', 'real').gte('date', first.start).lte('date', lastM.end),
       sb.from('recurring_projections').select('*'),
       sb.from('transfer_links').select('from_tx,to_tx'),
     ])
@@ -46,6 +66,8 @@ export async function GET() {
       type: r.type === 'ingreso' ? 'ingreso' : 'gasto',
       frequency: r.frequency || '',
       pay_day: String(r.pay_day ?? ''),
+      end_date: r.end_date ? String(r.end_date) : undefined,
+      category: r.category ? String(r.category) : undefined,
     }))
     const rulesById = new Map(ruleList.map((r) => [r.id, r]))
 
@@ -92,6 +114,7 @@ export async function GET() {
         date: o.occurrence_date,
         detail: o.concept,
         frequency: o.frequency,
+        category: (o as any).category || 'Proyección',
         debit: isInc ? 0 : amt,
         credit: isInc ? amt : 0,
       }
@@ -107,6 +130,16 @@ export async function GET() {
       monthly,
       matches,
       rules: { income: ruleIncome, expenses: ruleExpenses, count: ruleList.length },
+      ruleItems: ruleList.map((r) => ({
+        id: r.id,
+        concept: r.concept,
+        amount: r.amount,
+        type: r.type,
+        frequency: r.frequency,
+        pay_day: r.pay_day,
+        end_date: (r as any).end_date || null,
+        category: (r as any).category || '',
+      })),
       projected,
       projTotals: { income: projIncome, expenses: projExpenses },
       generatedAt: new Date().toISOString(),

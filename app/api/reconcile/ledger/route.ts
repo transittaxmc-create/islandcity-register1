@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
     const sb = supabaseServer()
     const [{ data: txs }, { data: rules }, { data: links }, { data: accs }] = await Promise.all([
-      sb.from('bank_transactions').select('*').eq('entry_type', 'real').gte('date', start).lte('date', end).order('date', { ascending: true }),
+      sb.from('bank_transactions').select('*').eq('entry_type', 'real').gte('date', start).lte('date', end).order('date', { ascending: true }).limit(20000),
       sb.from('recurring_projections').select('*'),
       sb.from('transfer_links').select('from_tx,to_tx'),
       sb.from('bank_accounts').select('name,current_balance'),
@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
       type: r.type === 'ingreso' ? 'ingreso' : 'gasto',
       frequency: r.frequency || '',
       pay_day: String(r.pay_day ?? ''),
+      end_date: r.end_date ? String(r.end_date) : undefined,
     }))
 
     const ledger = buildLedger({

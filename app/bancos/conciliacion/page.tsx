@@ -15,6 +15,19 @@ const FALLBACK_ACCOUNTS = ['Cuenta principal']
 const money = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
 
+// Fila del puente de conciliación (diseño firme, sin animaciones)
+function BridgeRow({ label, value, valueClass, tag }: { label: string; value: number; valueClass?: string; tag?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-slate-50 py-2">
+      <span className="min-w-0 truncate text-[13px] font-semibold text-slate-600">
+        {label}
+        {tag && <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-slate-500">{tag}</span>}
+      </span>
+      <span className={`flex-none font-mono text-[14px] font-bold text-slate-800 ${valueClass || ''}`}>{money(value)}</span>
+    </div>
+  )
+}
+
 const todayISO = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -96,20 +109,25 @@ export default function EstadoBancario() {
   const [acctMeta, setAcctMeta] = useState<{ name: string; current_balance: number | null; institution: string | null; display_order: number }[]>([])
   const [links, setLinks] = useState<any[]>([])
   const [showTransfers, setShowTransfers] = useState(false)
+  const [transferCands, setTransferCands] = useState<any[]>([])
   const [transferBusy, setTransferBusy] = useState(false)
   const [transferMsg, setTransferMsg] = useState('')
   const [analysis, setAnalysis] = useState<Record<string, string>>({})
   const [analyzingKey, setAnalyzingKey] = useState<string | null>(null)
-  // Comparative Ledger state (final blueprint): reality vs plan per row.
-  const [ledger, setLedger] = useState<any>(null)
-  const [savingGoal, setSavingGoal] = useState('')
-  const [safetyBuffer, setSafetyBuffer] = useState('')
+  // Remitentes por verificar (Miguel: la AI aprende; él confirma con un toque)
+  const [showSenders, setShowSenders] = useState(false)
+  const [pendingSenders, setPendingSenders] = useState<any[]>([])
+  const [sendersBusy, setSendersBusy] = useState(false)
+  const [confirmingSender, setConfirmingSender] = useState<string | null>(null)
   // Chat lateral del asistente financiero
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
+  const [listening, setListening] = useState(false)
+  const recogRef = useRef<any>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatListRef = useRef<HTMLDivElement>(null)
   const newRowRef = useRef<HTMLTableRowElement>(null)
 
   // Cuando se abre el formulario + Add, llevarlo a la vista (está arriba de la tabla).
@@ -135,18 +153,6 @@ export default function EstadoBancario() {
     fetch(`/api/reconcile/transfers?links=1&month=${month}`).then((r) => r.json()).then((j) => {
       if (!j.error) setLinks(j.links || [])
     }).catch(() => {})
-    // Comparative Ledger: reality vs plan (read-only; journal POST/PATCH/DELETE untouched).
-    try {
-      const sg = Number(localStorage.getItem('saving-goal') || 0)
-      const sb2 = Number(localStorage.getItem('safety-buffer') || 0)
-      if (String(sg)) setSavingGoal(String(sg))
-      if (String(sb2)) setSafetyBuffer(String(sb2))
-      const lj = await fetch(`/api/reconcile/ledger?month=${month}&savingGoal=${sg}&safetyBuffer=${sb2}`).then((r) => r.json())
-      if (!lj.error) setLedger(lj)
-      else setLedger(null)
-    } catch {
-      setLedger(null)
-    }
   }, [month])
 
   useEffect(() => {
@@ -224,6 +230,9 @@ export default function EstadoBancario() {
     let dReal = 0, cReal = 0, gProy = 0, iProy = 0
     for (const t of ftx) {
       if (linkedIds.has(String(t.id))) continue
+      // Transferencias internas y pendientes de verificación no son ingreso ni gasto
+      const cat = String(t.category || '').trim().toLowerCase()
+      if (cat === 'transfer' || cat === 'transferencias internas' || cat === 'por verificar') continue
       dReal += Number(t.debit) || 0; cReal += Number(t.credit) || 0
     }
     for (const p of fproj) { gProy += Number(p.debit) || 0; iProy += Number(p.credit) || 0 }
@@ -236,6 +245,35 @@ export default function EstadoBancario() {
     if (!rows.some((a) => a.current_balance != null)) return null
     return rows.reduce((s, a) => s + (Number(a.current_balance) || 0), 0)
   }, [acctMeta, acctFilter])
+
+  // Puente de conciliación: de dónde vino / a dónde fue el dinero en el periodo (solo banco real).
+  // Regla de Miguel: en el banco cada gasto se rastrea a un depósito; los transfers jamás inflan ingresos.
+  const bridge = useMemo(() => {
+    const isTransferCat = (c: any) => { const s = String(c || '').trim().toLowerCase(); return s === 'transfer' || s === 'transferencias internas' }
+    const isPendingCat = (c: any) => String(c || '').trim().toLowerCase() === 'por verificar'
+    let opening = 0, closing = 0, income = 0, expenses = 0, tIn = 0, tOut = 0, pNet = 0
+    const byAcct = new Map<string, Tx[]>()
+    for (const t of ftx) {
+      const k = t.bank_account || 'Cuenta principal'
+      if (!byAcct.has(k)) byAcct.set(k, [])
+      byAcct.get(k)!.push(t)
+    }
+    for (const arr of byAcct.values()) {
+      arr.sort((a, b) => a.date.localeCompare(b.date) || String((a as any).created_at || '').localeCompare(String((b as any).created_at || '')))
+      const first = arr[0], last = arr[arr.length - 1]
+      const db0 = Number(first.daily_balance), db1 = Number(last.daily_balance)
+      if (Number.isFinite(db0)) opening += db0 - (Number(first.credit) || 0) + (Number(first.debit) || 0)
+      if (Number.isFinite(db1)) closing += db1
+      for (const t of arr) {
+        const d = Number(t.debit) || 0, c = Number(t.credit) || 0
+        if (linkedIds.has(String(t.id)) || isTransferCat(t.category)) { tOut += d; tIn += c; continue }
+        if (isPendingCat(t.category)) { pNet += c - d; continue }
+        expenses += d; income += c
+      }
+    }
+    const residual = closing - (opening + income - expenses + tIn - tOut + pNet)
+    return { opening, income, expenses, tIn, tOut, pNet, closing, residual, nAccts: byAcct.size }
+  }, [ftx, linkedIds])
 
   async function saveEdit(id: string, field: string, value: any) {
     setEditing(null)
@@ -378,7 +416,7 @@ export default function EstadoBancario() {
     setChatMsgs(msgs)
     setChatInput('')
     setChatBusy(true)
-    const scrollDown = () => setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    const scrollDown = () => setTimeout(() => { const el = chatListRef.current; if (el) el.scrollTop = el.scrollHeight }, 50)
     try {
       if (/\bpdf\b|reporte|statement/i.test(text)) {
         const pdf = await import('@/lib/statement-pdf')
@@ -447,7 +485,7 @@ export default function EstadoBancario() {
       setChatMsgs([...chatMsgs, { role: 'ai', text: 'No pude aplicar: ' + e.message }])
     }
     setChatBusy(false)
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    setTimeout(() => { const el = chatListRef.current; if (el) el.scrollTop = el.scrollHeight }, 50)
   }
 
   /* ---------- celdas editables inline ---------- */
@@ -544,6 +582,33 @@ export default function EstadoBancario() {
     load()
   }
 
+  // ---- Remitentes por verificar (un toque: transferencia o pago; la AI aprende) ----
+  async function loadSenders() {
+    setSendersBusy(true)
+    try {
+      const j = await fetch(`/api/reconcile/senders?month=${month}`).then((r) => r.json())
+      if (j.error) throw new Error(j.error)
+      setPendingSenders(j.pending || [])
+    } catch {
+      setPendingSenders([])
+    }
+    setSendersBusy(false)
+  }
+
+  async function confirmSender(sender: string, kind: 'transfer' | 'payment') {
+    setConfirmingSender(sender)
+    try {
+      await fetch('/api/reconcile/senders', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sender, kind }),
+      })
+      setPendingSenders((ps) => ps.filter((p) => p.sender !== sender))
+      load()
+    } finally {
+      setConfirmingSender(null)
+    }
+  }
+
   // ---- Transferencias entre cuentas propias ----
   async function findTransfers() {
     setTransferBusy(true)
@@ -557,6 +622,29 @@ export default function EstadoBancario() {
         : 'No transfer candidates found for this month.')
     } catch (e: any) {
       setTransferMsg('Could not search: ' + e.message)
+    }
+    setTransferBusy(false)
+  }
+
+  // Auto-enlace por origen: solo emparejamientos únicos (mismo monto, ±3 días).
+  // Los ambiguos NO se adivinan: quedan abajo para que Miguel los apruebe.
+  async function autoLink() {
+    setTransferBusy(true)
+    setTransferMsg('')
+    try {
+      const j = await fetch('/api/reconcile/transfers/auto', { method: 'POST' }).then((r) => r.json())
+      if (j.error) throw new Error(j.error)
+      if (j.ambiguous?.length) setTransferCands(j.ambiguous)
+      setTransferMsg(
+        j.linked
+          ? `⚡ ${j.linked} transfer(s) auto-linked to their origin.${j.ambiguous?.length ? ` ${j.ambiguous.length} ambiguous — review below.` : ''}`
+          : j.ambiguous?.length
+            ? `${j.ambiguous.length} ambiguous — review and approve below.`
+            : 'No new transfers to link.'
+      )
+      load()
+    } catch (e: any) {
+      setTransferMsg('Could not auto-link: ' + e.message)
     }
     setTransferBusy(false)
   }
@@ -604,68 +692,47 @@ export default function EstadoBancario() {
     return chain
   }
 
-  const num = (v: number) =>
-    new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0)
+  // Origen de cada transferencia vinculada (regla de Miguel: cada transfer lleva su
+  // origen conectado). La receptora muestra "origen: [banco]"; la emisora "→ [destino]".
+  // Cadenas multi-salto muestran el trail completo (origen real del dinero).
+  const txOriginTag = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const l of links) {
+      if (!l.from || !l.to) continue
+      const chain = trailFor(l)
+      const hops = chain.map((c: any) => c.from?.bank_account)
+        .concat([chain[chain.length - 1].to?.bank_account]).filter(Boolean)
+      const trail = hops.length > 2 ? hops.map((h: string) => acctShort(h)).join(' → ') : null
+      m.set(String(l.from_tx), `→ ${acctShort(l.to.bank_account)}`)
+      m.set(String(l.to_tx), trail ? `origen: ${trail}` : `origen: ${acctShort(l.from.bank_account)}`)
+    }
+    return m
+  }, [links, acctMeta])
 
-  const STATUS_PILL: Record<string, string> = {
-    MATCHED: 'bg-emerald-100 text-emerald-700',
-    SUGGESTED: 'bg-amber-100 text-amber-700',
-    UNPLANNED: 'bg-rose-100 text-rose-700',
-    TRANSFER: 'bg-slate-200 text-slate-500',
-    BONUS: 'bg-yellow-100 text-yellow-800',
-    PLANNED_UNSPENT: 'bg-sky-100 text-sky-700',
-  }
-
-  const saveGoals = () => {
-    try {
-      localStorage.setItem('saving-goal', String(Number(savingGoal) || 0))
-      localStorage.setItem('safety-buffer', String(Number(safetyBuffer) || 0))
-    } catch {}
-    load()
-  }
-
-  const ledgerRow = (r: any) => {
-    const isTransfer = r.status === 'TRANSFER'
-    const isBonus = r.status === 'BONUS'
-    // Signed convention (engine): variance = actual − projected →
-    // positive = favorable (income over plan / expense under plan) = green.
-    // Unplanned rows have projected = 0 → overspend shows red, bonus income green.
-    const vGood = r.variance > 0.005
-    const vBad = r.variance < -0.005
-    return (
-      <tr
-        key={r.id}
-        className={`border-t border-slate-100 ${isTransfer ? 'bg-slate-50 italic text-slate-400' : isBonus ? 'bg-yellow-50/60' : 'bg-white'}`}
-        title={r.fullDetail}
-      >
-        <td className="whitespace-nowrap px-2 py-2 align-middle text-sm text-slate-600">{fmtDate(r.date)}</td>
-        <td className="max-w-[180px] truncate px-2 py-2 align-middle text-sm font-medium text-slate-700">{r.entity}</td>
-        <td className="whitespace-nowrap px-2 py-2 align-middle text-xs text-slate-500">{r.category}</td>
-        <td className="whitespace-nowrap px-2 py-2 align-middle text-xs text-slate-500">{r.account}</td>
-        <td className={`whitespace-nowrap px-2 py-2 text-right align-middle font-mono text-sm font-semibold ${isTransfer ? 'text-slate-400' : r.actual < 0 ? 'text-slate-800' : 'text-slate-800'}`}>
-          {r.actual === 0 && r.txId == null ? '–' : num(r.actual)}
-        </td>
-        <td className="whitespace-nowrap px-2 py-2 text-right align-middle font-mono text-sm text-slate-500">
-          {r.projected === 0 && !r.isRecurringRule ? '0.00' : num(r.projected)}
-        </td>
-        <td className={`whitespace-nowrap px-2 py-2 text-right align-middle font-mono text-sm font-bold ${vGood ? 'text-emerald-600' : vBad ? 'text-rose-600' : 'text-slate-400'}`}>
-          {Math.abs(r.variance) < 0.005 ? '0.00' : `${r.variance > 0 ? '+' : '−'}${num(Math.abs(r.variance))}`}
-        </td>
-        <td className="whitespace-nowrap px-2 py-2 text-center align-middle">
-          <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${STATUS_PILL[r.status] || 'bg-slate-100 text-slate-500'}`}>
-            {r.status === 'PLANNED_UNSPENT' ? 'PLANNED' : r.status}
-          </span>
-        </td>
-        <td className="whitespace-nowrap px-2 py-2 text-center align-middle">
-          {r.txId ? (
-            <button onClick={() => delRow(r.txId)} className="rounded p-1 text-slate-300 hover:bg-red-50 hover:text-red-500" aria-label="Delete">×</button>
-          ) : r.ruleId ? (
-            <span className="text-[10px] font-semibold text-sky-500" title="Recurring rule">⟳</span>
-          ) : null}
-        </td>
-      </tr>
-    )
-  }
+  // Transferencias vinculadas visibles en el filtro actual, con su trail de origen
+  // (para la sección Conciliación: de dónde vino cada dólar).
+  const originTrails = useMemo(() => {
+    const ids = new Set(ftx.map((t) => String(t.id)))
+    const out: { key: string; trail: string; date: string; amount: number }[] = []
+    const seen = new Set<string>()
+    for (const l of links) {
+      if (!l.from || !l.to) continue
+      if (!ids.has(String(l.from_tx)) && !ids.has(String(l.to_tx))) continue
+      const chain = trailFor(l)
+      const hops = chain.map((c: any) => c.from?.bank_account)
+        .concat([chain[chain.length - 1].to?.bank_account]).filter(Boolean)
+      const key = hops.join('>')
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({
+        key,
+        trail: hops.map((h: string) => acctShort(h)).join(' → '),
+        date: fmtDate(l.from.date),
+        amount: Number(l.from.debit) || 0,
+      })
+    }
+    return out.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12)
+  }, [links, ftx, acctMeta])
 
   const journalRow = (t: Tx, kind: 'real' | 'proy') => {
     const tb = kind === 'real' ? trueBal.get(t.id) : null
@@ -674,7 +741,32 @@ export default function EstadoBancario() {
     <tr key={t.id} className={`border-t border-slate-100 ${kind === 'proy' ? 'bg-amber-50/50' : 'bg-white'}`}>
       {txtCell(t.id, 'date', t.date, { type: 'date', display: fmtDate(t.date) })}
       {selCell(t.id, 'bank_account', t.bank_account, lists.accounts, false, acctShort(t.bank_account))}
-      {txtCell(t.id, 'detail', t.detail, { display: shortDetail(t.detail) })}
+      {(() => {
+        const tag = txOriginTag.get(String(t.id))
+        const isEd = editing?.id === t.id && editing?.field === 'detail'
+        if (isEd) {
+          return (
+            <td key="detail" className="px-2 py-2 text-sm align-middle">
+              <input
+                autoFocus
+                type="text"
+                defaultValue={t.detail ?? ''}
+                className="w-full rounded border border-[#40b9a1] bg-white px-1 py-0.5 text-sm"
+                onBlur={(e) => saveEdit(t.id, 'detail', e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(null) }}
+              />
+            </td>
+          )
+        }
+        return (
+          <td key="detail" className="px-2 py-2 text-sm align-middle" onClick={() => setEditing({ id: t.id, field: 'detail' })}>
+            <span className="block max-w-[150px] cursor-text truncate rounded py-0.5 hover:bg-slate-100" title={String(t.detail ?? '')}>
+              {shortDetail(t.detail)}
+            </span>
+            {tag && <span className="block max-w-[150px] truncate text-[10px] font-bold text-[#0f766e]">⛓ {tag}</span>}
+          </td>
+        )
+      })()}
       {selCell(t.id, 'category', t.category, lists.categories, true)}
       {selCell(t.id, 'frequency', t.frequency, FREQUENCIES, true)}
       {txtCell(t.id, 'debit', t.debit, { type: 'number', right: true, display: Number(t.debit) ? money(Number(t.debit)) : '' })}
@@ -855,11 +947,52 @@ export default function EstadoBancario() {
           </div>
         </div>
 
+        {/* Conciliación: de dónde vino / a dónde fue el dinero */}
+        <div className="mb-3 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="text-[17px] font-bold text-[#10243f]">Reconciliation</h2>
+            <p className="mt-0.5 text-[12px] text-slate-500">
+              {new Date(month + '-02').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              {' · '}{acctFilter === 'all' ? `All accounts (${bridge.nAccts})` : acctLabel(acctFilter)}
+              {' — cada gasto rastreado a su depósito'}
+            </p>
+          </div>
+          <div className="px-4 py-1.5">
+            <BridgeRow label="Opening balance" value={bridge.opening} />
+            <BridgeRow label="+ Actual income" value={bridge.income} valueClass="text-[#065f46]" />
+            <BridgeRow label="+ Transfers received" value={bridge.tIn} tag="transfer" />
+            <BridgeRow label="− Actual expenses" value={bridge.expenses} valueClass="text-[#be123c]" />
+            <BridgeRow label="− Transfers sent" value={bridge.tOut} tag="transfer" />
+            {Math.abs(bridge.pNet) >= 0.005 && (
+              <BridgeRow label="± To verify (net)" value={bridge.pNet} valueClass="text-[#b45309]" />
+            )}
+            <div className="flex items-center justify-between gap-3 border-t-2 border-[#10243f]/10 py-2.5">
+              <span className="text-[13px] font-bold text-[#10243f]">= Closing balance</span>
+              <span className="flex-none font-mono text-[15px] font-bold text-[#10243f]">{money(bridge.closing)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 py-2">
+              <span className="text-[12px] font-semibold text-slate-500">Unreconciled difference</span>
+              <span className={`flex-none font-mono text-[13px] font-bold ${Math.abs(bridge.residual) < 0.01 ? 'text-[#16a34a]' : 'text-[#b45309]'}`}>{money(bridge.residual)}</span>
+            </div>
+            {originTrails.length > 0 && (
+              <div className="border-t border-slate-100 py-2">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Transfer origin</p>
+                {originTrails.map((o) => (
+                  <p key={o.key} className="truncate text-[11px] text-slate-600">
+                    <span className="font-bold text-[#0f766e]">⛓ {o.trail}</span>
+                    <span className="text-slate-400"> · {o.date} · {money(o.amount)}</span>
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Libro Diario */}
         <div className="mb-5 overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
             <h2 className="text-[17px] font-bold text-[#10243f]">Journal</h2>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -875,6 +1008,13 @@ export default function EstadoBancario() {
                 className={`rounded-xl px-3 py-1.5 text-sm font-bold ${showTransfers ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
                 🔗 Transfers{links.length ? ` (${links.length})` : ''}
+              </button>
+              <button
+                onClick={() => { setShowSenders((v) => !v); if (!showSenders) loadSenders() }}
+                title="Zelles pending verification"
+                className={`rounded-xl px-3 py-1.5 text-sm font-bold ${showSenders ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              >
+                ✓ Zelles
               </button>
               <button
                 onClick={startAdd}
@@ -913,6 +1053,13 @@ export default function EstadoBancario() {
                 >
                   {transferBusy ? 'Searching…' : '🔍 Find transfers'}
                 </button>
+                <button
+                  onClick={autoLink}
+                  disabled={transferBusy}
+                  title="Auto-link unique matches to their origin (ambiguous ones stay for your review)"
+                  className="rounded-xl bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] hover:bg-[#35a48f] disabled:opacity-50"
+                >
+                  ⚡ Auto-link</button>
               </div>
               {transferMsg && <p className="mb-2 text-xs text-slate-500">{transferMsg}</p>}
               {links.length > 0 && (
@@ -967,77 +1114,39 @@ export default function EstadoBancario() {
               )}
             </div>
           )}
-          {/* ===== Comparative Ledger: Reality vs Plan (final blueprint) ===== */}
-          <div className="mt-5 overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#10243f]/10 bg-slate-50/60 px-4 py-3">
-              <div>
-                <h2 className="text-[17px] font-bold text-[#10243f]">Comparative Ledger</h2>
-                <p className="text-[11px] text-slate-500">Reality vs plan — did I spend/earn what I planned?</p>
+          {/* Remitentes por verificar: un toque por remitente, la AI aprende */}
+          {showSenders && (
+            <div className="border-b border-slate-100 bg-amber-50/50 px-4 py-3">
+              <div className="mb-2">
+                <h3 className="text-sm font-bold text-[#10243f]">Zelles to verify</h3>
+                <p className="text-[11px] text-slate-500">Confirm whether the sender is your own account (transfer) or a payment. Your answer is saved and auto-applies next time.</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                  Saving goal $
-                  <input value={savingGoal} onChange={(e) => setSavingGoal(e.target.value)} inputMode="decimal" placeholder="0" className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs font-mono" />
-                </label>
-                <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
-                  Buffer $
-                  <input value={safetyBuffer} onChange={(e) => setSafetyBuffer(e.target.value)} inputMode="decimal" placeholder="0" className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs font-mono" />
-                </label>
-                <button onClick={saveGoals} className="rounded-lg bg-[#10243f] px-2.5 py-1 text-[11px] font-bold text-white">Apply</button>
-              </div>
+              {sendersBusy && <p className="text-xs text-slate-500">Loading…</p>}
+              {!sendersBusy && pendingSenders.length === 0 && (
+                <p className="text-xs text-slate-500">No pending senders this month. ✓</p>
+              )}
+              {pendingSenders.map((p) => (
+                <div key={p.sender} className="mb-1.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-white px-3 py-2">
+                  <div className="min-w-0 text-xs">
+                    <span className="font-bold text-slate-700">{p.sender}</span>
+                    <span className="ml-2 text-slate-500">{p.n} movimiento{p.n === 1 ? '' : 's'} · {p.total < 0 ? '−' : '+'}{money(Math.abs(p.total))}</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => confirmSender(p.sender, 'transfer')}
+                      disabled={confirmingSender === p.sender}
+                      className="rounded-lg bg-[#10243f] px-2.5 py-1 text-[11px] font-bold text-white hover:bg-[#1c3557] disabled:opacity-50"
+                    >{confirmingSender === p.sender ? '…' : '🔁 Transferencia'}</button>
+                    <button
+                      onClick={() => confirmSender(p.sender, 'payment')}
+                      disabled={confirmingSender === p.sender}
+                      className="rounded-lg bg-[#40b9a1] px-2.5 py-1 text-[11px] font-bold text-[#10243f] hover:bg-[#35a48f] disabled:opacity-50"
+                    >{confirmingSender === p.sender ? '…' : '💵 Es pago'}</button>
+                  </div>
+                </div>
+              ))}
             </div>
-            {ledger?.alert?.message && (
-              <div className={`border-b px-4 py-2 text-xs font-bold ${ledger.alert.level === 'red' ? 'border-red-200 bg-red-50 text-red-700' : ledger.alert.level === 'orange' ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-yellow-200 bg-yellow-50 text-yellow-700'}`}>
-                {ledger.alert.level === 'red' ? '🔴 ' : ledger.alert.level === 'orange' ? '🟠 ' : '🟡 '}{ledger.alert.message}
-                <span className="ml-2 font-mono font-semibold">Net {num(ledger.alert.net)}</span>
-              </div>
-            )}
-            {(ledger?.buckets || []).length > 0 && (
-              <div className="flex flex-wrap gap-2 border-b border-slate-100 px-4 py-2">
-                {(ledger.buckets || []).map((b: any) => (
-                  <span key={b.category} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${b.over ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {b.category}: {num(b.actual)} / {num(b.budget)}{b.over ? ' — over' : ` — ${num(b.remaining)} left`}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Date</th>
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Entity</th>
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Category</th>
-                    <th className="px-2 py-2.5 font-semibold text-left align-middle">Account</th>
-                    <th className="px-2 py-2.5 text-right font-semibold align-middle">Actual (USD)</th>
-                    <th className="px-2 py-2.5 text-right font-semibold align-middle">Projected (USD)</th>
-                    <th className="px-2 py-2.5 text-right font-semibold align-middle">Variance</th>
-                    <th className="px-2 py-2.5 font-semibold text-center align-middle">Status</th>
-                    <th className="w-[40px] px-2 py-2.5 align-middle"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {!(ledger?.rows) ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Loading ledger…</td></tr>
-                  ) : ledger.rows.length === 0 ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">No ledger rows this month.</td></tr>
-                  ) : (
-                    ledger.rows.map((r: any) => ledgerRow(r))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {ledger?.totals && (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-emerald-600 bg-emerald-50/50 px-4 py-2.5 text-sm">
-                <span className="font-extrabold text-slate-800">Actual net <span className="font-mono">{num(ledger.totals.actualNet)}</span></span>
-                <span className="font-semibold text-slate-500">Projected net <span className="font-mono">{num(ledger.totals.projectedNet)}</span></span>
-                <span className={`font-extrabold font-mono ${ledger.totals.gap > 0.005 ? 'text-emerald-600' : ledger.totals.gap < -0.005 ? 'text-rose-600' : 'text-slate-500'}`}>
-                  Gap {ledger.totals.gap > 0 ? '+' : ''}{num(ledger.totals.gap)}
-                </span>
-              </div>
-            )}
-          </div>
-
+          )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] border-collapse">
               <thead>
@@ -1047,9 +1156,9 @@ export default function EstadoBancario() {
                   <th className="w-[150px] px-2 py-2.5 font-semibold text-left align-middle">Detail</th>
                   <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Category">Cat.</th>
                   <th className="w-[56px] px-1 py-2.5 font-semibold text-center align-middle" title="Frequency">Freq.</th>
-                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Debit (USD)</th>
-                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Credit (USD)</th>
-                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Balance (USD)</th>
+                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Debit</th>
+                  <th className="w-[80px] px-2 py-2.5 text-right font-semibold align-middle">Credit</th>
+                  <th className="w-[86px] px-2 py-2.5 text-right font-semibold align-middle">Balance</th>
                   <th className="w-[56px] px-2 py-2.5 align-middle"></th>
                 </tr>
               </thead>
@@ -1175,7 +1284,7 @@ export default function EstadoBancario() {
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-[11px] text-slate-400">To schedule something (e.g. $400 daily until end of month): <b>+ Add</b> → Frec. → <b>Diaria</b>.</p>
+            <p className="mt-2 text-[11px] text-slate-400">To schedule something (e.g. $400 daily until end of month): <b>+ Add</b> → Freq. → <b>Daily</b>.</p>
           </div>
         </div>
 
@@ -1183,7 +1292,7 @@ export default function EstadoBancario() {
           </div>
         </div>
         {chatOpen && (
-          <aside className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] flex-col rounded-t-3xl border-t-2 border-slate-200 bg-white shadow-2xl lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-[370px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
+          <aside className="fixed inset-x-0 bottom-0 z-40 flex h-[70vh] max-h-[70dvh] flex-col overflow-x-clip overscroll-contain rounded-t-3xl border-t-2 border-slate-200 bg-white shadow-2xl lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:max-h-none lg:w-[370px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
                 <h3 className="font-bold">Financial assistant</h3>
@@ -1191,7 +1300,7 @@ export default function EstadoBancario() {
               </div>
               <button onClick={() => setChatOpen(false)} className="rounded-lg bg-slate-100 px-2 py-1 text-sm font-bold text-slate-500" aria-label="Close chat">✕</button>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 py-3">
+            <div ref={chatListRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-clip overscroll-contain px-4 py-3">
               {chatMsgs.length === 0 ? (
                 <div>
                   <p className="mb-2 text-sm text-slate-500">How can I help? Try:</p>
@@ -1204,7 +1313,7 @@ export default function EstadoBancario() {
               ) : (
                 chatMsgs.map((m, i) => (
                   <div key={i} className={`mb-3 ${m.role === 'user' ? 'text-right' : ''}`}>
-                    <div className={`inline-block max-w-[90%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line text-left ${m.role === 'user' ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-700'}`}>
+                    <div className={`inline-block max-w-[90%] break-words rounded-2xl px-3 py-2 text-sm whitespace-pre-line [overflow-wrap:anywhere] text-left ${m.role === 'user' ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-700'}`}>
                       {m.text}
                       {m.file && (
                         <div className="mt-2">
@@ -1245,15 +1354,41 @@ export default function EstadoBancario() {
               {chatBusy && <p className="text-xs text-slate-400">Thinking…</p>}
               <div ref={chatEndRef} />
             </div>
-            <div className="border-t border-slate-100 p-3">
+            <div className="shrink-0 border-t border-slate-100 bg-white p-3">
               <div className="flex gap-2">
                 <input
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') askAI(chatInput) }}
                   placeholder="Finance question… or 'PDF de enero a marzo'"
-                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-[16px]"
                 />
+                {typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition) && (
+                  <button
+                    onClick={() => {
+                      const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+                      if (listening) { recogRef.current?.stop(); return }
+                      const r = new SR()
+                      r.lang = 'es-ES'
+                      r.interimResults = false
+                      r.maxAlternatives = 1
+                      r.onresult = (e: any) => {
+                        const t = e.results[0][0].transcript as string
+                        setChatInput((prev) => (prev ? prev + ' ' : '') + t)
+                      }
+                      r.onend = () => setListening(false)
+                      r.onerror = () => setListening(false)
+                      recogRef.current = r
+                      setListening(true)
+                      try { r.start() } catch { setListening(false) }
+                    }}
+                    className={`rounded-xl px-3 py-2 text-sm font-bold ${listening ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-600'}`}
+                    aria-label={listening ? 'Detener dictado' : 'Dictar por voz'}
+                    title="Dictar por voz"
+                  >
+                    {listening ? '⏹' : '🎤'}
+                  </button>
+                )}
                 <button onClick={() => askAI(chatInput)} disabled={chatBusy} className="rounded-xl bg-[#40b9a1] px-4 py-2 text-sm font-bold text-[#10243f] disabled:opacity-50" aria-label="Send">
                   ➤
                 </button>

@@ -32,6 +32,23 @@ export async function POST(req: NextRequest) {
       } else if (p.action === 'eliminar_movimiento' && p.args?.id) {
         const { error } = await sb.from('bank_transactions').delete().eq('id', p.args.id)
         results.push(error ? `Error: ${error.message}` : `✅ Movimiento eliminado.`)
+      } else if (p.action === 'agregar_transaccion' && p.args?.fecha && p.args?.detalle && p.args?.monto != null && p.args?.tipo) {
+        const bank_account = p.args.cuenta || 'Cuenta principal'
+        const isCredit = p.args.tipo === 'ingreso'
+        const debit = isCredit ? 0 : Number(p.args.monto)
+        const credit = isCredit ? Number(p.args.monto) : 0
+        // Balance por cuenta (igual que el alta manual en data/route.ts).
+        const { data: prev } = await sb.from('bank_transactions')
+          .select('daily_balance').eq('bank_account', bank_account).lte('date', p.args.fecha)
+          .order('date', { ascending: false }).order('created_at', { ascending: false }).limit(1)
+        const prevBal = prev?.[0]?.daily_balance ? Number(prev[0].daily_balance) : 0
+        const bal = prevBal + credit - debit
+        const { error } = await sb.from('bank_transactions').insert({
+          date: p.args.fecha, bank_account, detail: p.args.detalle,
+          category: p.args.categoria || 'Otro', frequency: 'Un solo pago', entry_type: 'real',
+          debit, credit, daily_balance: bal,
+        })
+        results.push(error ? `Error: ${error.message}` : `✅ Movimiento agregado: ${isCredit ? '+' : '−'}$${Number(p.args.monto).toFixed(2)} — "${p.args.detalle}".`)
       } else {
         results.push(`Acción no reconocida: ${p.action}`)
       }

@@ -71,7 +71,10 @@ function monthsBetween(from: string, to: string): string[] {
 const money2 = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
 
-const isTransfer = (t: Tx) => String(t.category || '').trim().toLowerCase() === 'transfer'
+// Transfers are NEVER income (durable rule). The auto-linker marks category
+// 'Transfer'; the app also uses the Spanish 'Transferencias Internas'.
+const TRANSFER_CATS = ['transfer', 'transferencia interna', 'transferencias internas', 'internal transfer', 'internal transfers']
+const isTransfer = (t: Tx) => TRANSFER_CATS.includes(String(t.category || '').trim().toLowerCase())
 const inRange = (d: string, from: string, to: string) => {
   const s = String(d || '').slice(0, 10)
   return s >= from && s <= to

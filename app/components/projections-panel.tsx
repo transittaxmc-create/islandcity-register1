@@ -172,7 +172,7 @@ function Kpi({
 const card = 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'
 const h3 = 'text-[14px] font-bold text-slate-800'
 
-type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; chronoBal: number; bankBal: number; ruleId: string | null; kind: 'inc' | 'exp' }
+type MoveRow = { key: string; date: string; label: string; sub: string; category: string; frequency: string; net: number; initialBal: number; chronoBal: number; bankBal: number; ruleId: string | null; kind: 'inc' | 'exp' }
 type DailyRow = { date: string; opening: number; inflow: number; outflow: number; net: number; closing: number; health: 'ok' | 'warn' | 'bad' }
 
 // Categorías que son transferencias internas (misma definición que el Estado Bancario)
@@ -694,7 +694,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   // Balance proyectado = saldo de la cuenta bancaria + ingresos proyectados − gastos proyectados.
   const grandTotal = mainBal + winInc - winExp
 
-  // Movimientos del registro (solo banco principal), con balance corrido cronológico
+  // Movimientos del registro: cada fila conserva un balance inicial explícito; el cierre se calcula como inicial + ingreso − gasto.
   // Si se ocultan transfers, se excluyen por categoría (las reglas proyectadas no son transfers)
   const visibleTxs = useMemo(
     () => (hideTransfers ? mainTxs.filter((t) => !isTransferCat(t.category)) : mainTxs),
@@ -735,9 +735,10 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
     let run = mainBal + otrosSum
     let runBank = mainBal
     return arr.map((m) => {
+      const initialBal = run
       run += m.net
       if (m.key.startsWith('tx-')) runBank += m.net
-      return { ...m, chronoBal: run, bankBal: runBank }
+      return { ...m, initialBal, chronoBal: run, bankBal: runBank }
     })
   }, [visibleTxs, projWin, mainBal, otrosSum, ruleItems])
 
@@ -1128,7 +1129,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                   <th className="border-b border-slate-200 px-3 py-2 font-medium">Frequency</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Income</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Expense</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Bank balance</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Initial balance</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Projected balance</th>
                 </tr>
               </thead>
@@ -1216,7 +1217,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                         <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-red-500">
                           {exp > 0 ? `−${num2(exp)}` : isProj && r.kind === 'exp' ? <span className="text-slate-500">$0.00</span> : <span className="text-slate-300">—</span>}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{num2(r.bankBal)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-500">{num2(r.initialBal)}</td>
                         <td className={`whitespace-nowrap px-3 py-2 text-right font-bold tabular-nums ${health === 'bad' ? 'text-red-600' : health === 'warn' ? 'text-amber-600' : 'text-slate-800'}`}>
                           {num2(r.chronoBal)}
                         </td>

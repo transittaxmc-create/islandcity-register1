@@ -822,7 +822,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   // Barras de totales fijas al fondo de la caja del register: siempre visibles al hacer scroll.
   // sticky bottom-0 dentro de la caja con scroll; fondo sólido para que las filas no se transparenten.
   const proyTotalsBar = (
-    <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
+    <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm md:sticky md:bottom-0">
       <span className="font-extrabold text-slate-800">Opening balance <span className="font-mono tabular-nums">{num2(mainBal)}</span>{otrosSum > 0 && (<button onClick={onOpenOtros} title="See in Settings \u2192 Projections" className="ml-1 rounded-full bg-emerald-50 px-1.5 py-px align-middle text-[10px] font-bold text-emerald-700 hover:bg-emerald-100">+{num2(otrosSum)} other</button>)}</span>
       <span className="font-semibold text-slate-500">
         <span className="text-[#16a34a]">+{num2(winInc)}</span>
@@ -835,7 +835,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
     </div>
   )
   const bancoTotalsBar = (
-    <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#3b82f6] bg-blue-50 px-4 py-2 text-sm">
+    <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#3b82f6] bg-blue-50 px-4 py-2 text-sm md:sticky md:bottom-0">
       <span className="font-extrabold text-slate-800">Opening balance <span className="font-mono tabular-nums">{num2(mainBal)}</span></span>
       <span className="font-semibold text-slate-500">
         <span className="text-[#16a34a]">+{num2(bancoInc)}</span>
@@ -1018,9 +1018,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           </div>
 
           {/* Móvil: formato compacto */}
-          <div className="mt-2 max-h-[320px] overflow-y-auto overscroll-contain rounded-lg border border-slate-100 md:hidden">
-            <table className="w-full border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-white">
+          <div className="mt-2 overflow-hidden rounded-lg border border-slate-100 md:hidden">
+            <table className="w-full table-fixed border-collapse text-sm">
+              <thead className="bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Date</th>
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Description</th>
@@ -1263,9 +1263,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           </div>
 
           {/* Móvil: formato compacto */}
-          <div className="mt-2 max-h-[320px] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white md:hidden">
-            <table className="w-full border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-white">
+          <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white md:hidden">
+            <table className="w-full table-fixed border-collapse text-sm">
+              <thead className="bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Date</th>
                   <th className="border-b border-slate-200 px-2 py-2 font-medium">Description</th>

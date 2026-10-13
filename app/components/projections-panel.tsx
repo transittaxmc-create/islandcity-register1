@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { PlatformAvatar } from './platform-logo'
 
 type Acct = { name: string; current_balance: number | null; institution: string | null; display_order: number }
-type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; category: string; debit: number; credit: number }
-type RuleItem = { id: string; concept: string; amount: number; type: string; frequency: string; pay_day: string; end_date: string | null; category: string }
+export type ProjItem = { id: string; rule_id: string; date: string; detail: string; frequency: string; category: string; debit: number; credit: number }
+export type RuleItem = { id: string; concept: string; amount: number; type: string; frequency: string; pay_day: string; end_date: string | null; category: string }
 type Tx = { id: string; date: string; detail: string; debit: number; credit: number; category: string }
 
 const SUMMARY_CACHE = 'proj-summary-v1'
@@ -15,12 +15,13 @@ const HIDE_TR_KEY = 'proj-hide-transfers'
 const VIEW_KEY = 'proj-view'
 const OTROS_KEY = 'proj-otros-fondos'
 const OTROS_EVT = 'otros-fondos-changed'
+export const RULES_EVT = 'recurring-rules-changed'
 const DEFAULT_MAIN = 'Access Account …6393'
 
 const num2 = (v: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v || 0)
 
-const money = (v: number) =>
+export const money = (v: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v || 0)
 
 const moneyK = (v: number) => {
@@ -43,7 +44,7 @@ const shortBank = (a: Acct) => {
   return `${inst}${mask ? ` …${mask}` : ''}`.trim() || a.name
 }
 
-const fmtD = (iso: string) => {
+export const fmtD = (iso: string) => {
   if (!iso || typeof iso !== 'string') return '–'
   const [y, m, d] = iso.split('-').map(Number)
   if (!y || !m || !d) return iso
@@ -58,15 +59,15 @@ const weekdayOf = (iso: string) => {
 
 // Etiquetas en inglés para frecuencia (los valores internos siguen en español, que es lo que espera el motor)
 // v2: redeploy
-const FREQS: [string, string][] = [
+export const FREQS: [string, string][] = [
   ['Un solo pago', 'ONE TIME'],
   ['Diaria', 'DAILY'],
   ['Semanal', 'WEEKLY'],
   ['Mensual', 'MONTHLY'],
   ['Anual', 'YEARLY'],
 ]
-const freqLabel = (f: string) => (FREQS.find(([v]) => v === f)?.[1] || f)
-const CATS = [
+export const freqLabel = (f: string) => (FREQS.find(([v]) => v === f)?.[1] || f)
+export const CATS = [
   'Proyección',
   'Car Leasing',
   'Combustible',
@@ -80,7 +81,7 @@ const CATS = [
   'Otro',
 ]
 
-function localToday() {
+export function localToday() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -288,6 +289,13 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
     read()
     window.addEventListener(OTROS_EVT, read)
     return () => window.removeEventListener(OTROS_EVT, read)
+  }, [])
+
+  // Reglas recurrentes: si se crean/editan/borran en Ajustes → Proyecciones, refrescar al instante.
+  useEffect(() => {
+    const h = () => { refreshSummary(true) }
+    window.addEventListener(RULES_EVT, h)
+    return () => window.removeEventListener(RULES_EVT, h)
   }, [])
 
   const setFloor = (v: number) => {
@@ -554,22 +562,6 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
         <option value={NEW_CAT}>+ Add new category</option>
       </select>
     )
-
-  const deleteRule = async (id: string) => {
-    // Optimista: la fila desaparece al instante; si falla, se restaura.
-    const prevRules = ruleItems
-    const prevProj = projected
-    setRuleItems((prev) => prev.filter((r) => String(r.id) !== String(id)))
-    setProjected((prev) => prev.filter((pp) => String(pp.rule_id) !== String(id)))
-    try {
-      await fetch(`/api/reconcile/data?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
-    } catch {
-      setRuleItems(prevRules)
-      setProjected(prevProj)
-      return
-    }
-    await refreshSummary(true)
-  }
 
   // Borra UNA ocurrencia proyectada (solo esa fecha; la regla sigue generando las demás).
   // Solo filas 🔮 — nunca toca movimientos reales del banco.
@@ -1279,63 +1271,6 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
 
       {view === 'proyecciones' && (
       <>
-      {/* Proyecciones — reglas guardadas (la entrada vive en la primera fila del Registro) */}
-      <section className="mt-3">
-        <div className={card}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className={h3}>Recurring rules</h3>
-              <p className="mt-0.5 text-[11px] text-slate-400">Recurring income and expenses. They feed the totals above.</p>
-            </div>
-
-          </div>
-          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
-            <table className="w-full min-w-[760px] border-collapse text-sm">
-              <thead>
-                <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Start</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detail</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Category</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Type</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Amount</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Frequency</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Until</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {ruleItems.map((r) => {
-                  const t = String(r.type || '').toLowerCase()
-                  const isInc = t === 'ingreso' || t === 'income'
-                  return (
-                    <tr key={r.id} className="border-t border-slate-100">
-                      <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-500">{fmtD(r.pay_day)}</td>
-                      <td className="px-2 py-2 font-medium text-slate-700">{r.concept}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-xs text-slate-500">{r.category || 'Proyección'}</td>
-                      <td className={`whitespace-nowrap px-2 py-2 text-xs font-bold ${isInc ? 'text-[#16a34a]' : 'text-red-500'}`}>
-                        {isInc ? 'INGRESO' : 'GASTO'}
-                      </td>
-                      <td className={`whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums ${isInc ? 'text-[#16a34a]' : 'text-slate-800'}`}>
-                        {money(r.amount)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-xs font-semibold text-slate-500">{freqLabel(r.frequency)}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-slate-500">{r.end_date ? fmtD(r.end_date) : '—'}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right">
-                        <button onClick={() => startEdit(r.id, nextOccurrence(r.id))} title="Edit projection" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-blue-50 hover:text-blue-600">✎</button>
-                        <button onClick={() => deleteRule(r.id)} title="Delete projection" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-                {ruleItems.length === 0 && (
-                  <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">No projections yet. Enter income and expenses in the register's first row.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
       {/* Barras + Daily — solo ventana de proyección */}
       <section className="mt-3 grid gap-3 xl:grid-cols-5">
         <div className={`${card} xl:col-span-3`}>

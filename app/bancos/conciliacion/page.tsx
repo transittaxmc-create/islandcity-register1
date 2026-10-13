@@ -950,7 +950,7 @@ export default function EstadoBancario() {
         {/* Conciliación: de dónde vino / a dónde fue el dinero */}
         <div className="mb-3 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white">
           <div className="border-b border-slate-100 px-4 py-3">
-            <h2 className="text-[17px] font-bold text-[#10243f]">Conciliación</h2>
+            <h2 className="text-[17px] font-bold text-[#10243f]">Reconciliation</h2>
             <p className="mt-0.5 text-[12px] text-slate-500">
               {new Date(month + '-02').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
               {' · '}{acctFilter === 'all' ? `All accounts (${bridge.nAccts})` : acctLabel(acctFilter)}
@@ -958,25 +958,25 @@ export default function EstadoBancario() {
             </p>
           </div>
           <div className="px-4 py-1.5">
-            <BridgeRow label="Balance inicial" value={bridge.opening} />
-            <BridgeRow label="+ Ingresos reales" value={bridge.income} valueClass="text-[#065f46]" />
-            <BridgeRow label="+ Transferencias recibidas" value={bridge.tIn} tag="transfer" />
-            <BridgeRow label="− Gastos reales" value={bridge.expenses} valueClass="text-[#be123c]" />
-            <BridgeRow label="− Transferencias enviadas" value={bridge.tOut} tag="transfer" />
+            <BridgeRow label="Opening balance" value={bridge.opening} />
+            <BridgeRow label="+ Actual income" value={bridge.income} valueClass="text-[#065f46]" />
+            <BridgeRow label="+ Transfers received" value={bridge.tIn} tag="transfer" />
+            <BridgeRow label="− Actual expenses" value={bridge.expenses} valueClass="text-[#be123c]" />
+            <BridgeRow label="− Transfers sent" value={bridge.tOut} tag="transfer" />
             {Math.abs(bridge.pNet) >= 0.005 && (
-              <BridgeRow label="± Por verificar (neto)" value={bridge.pNet} valueClass="text-[#b45309]" />
+              <BridgeRow label="± To verify (net)" value={bridge.pNet} valueClass="text-[#b45309]" />
             )}
             <div className="flex items-center justify-between gap-3 border-t-2 border-[#10243f]/10 py-2.5">
-              <span className="text-[13px] font-bold text-[#10243f]">= Balance final</span>
+              <span className="text-[13px] font-bold text-[#10243f]">= Closing balance</span>
               <span className="flex-none font-mono text-[15px] font-bold text-[#10243f]">{money(bridge.closing)}</span>
             </div>
             <div className="flex items-center justify-between gap-3 border-t border-slate-100 py-2">
-              <span className="text-[12px] font-semibold text-slate-500">Diferencia por conciliar</span>
+              <span className="text-[12px] font-semibold text-slate-500">Unreconciled difference</span>
               <span className={`flex-none font-mono text-[13px] font-bold ${Math.abs(bridge.residual) < 0.01 ? 'text-[#16a34a]' : 'text-[#b45309]'}`}>{money(bridge.residual)}</span>
             </div>
             {originTrails.length > 0 && (
               <div className="border-t border-slate-100 py-2">
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Origen de transferencias</p>
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-slate-400">Transfer origin</p>
                 {originTrails.map((o) => (
                   <p key={o.key} className="truncate text-[11px] text-slate-600">
                     <span className="font-bold text-[#0f766e]">⛓ {o.trail}</span>
@@ -1011,7 +1011,7 @@ export default function EstadoBancario() {
               </button>
               <button
                 onClick={() => { setShowSenders((v) => !v); if (!showSenders) loadSenders() }}
-                title="Zelles pendientes de verificación"
+                title="Zelles pending verification"
                 className={`rounded-xl px-3 py-1.5 text-sm font-bold ${showSenders ? 'bg-[#10243f] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
               >
                 ✓ Zelles
@@ -1118,12 +1118,12 @@ export default function EstadoBancario() {
           {showSenders && (
             <div className="border-b border-slate-100 bg-amber-50/50 px-4 py-3">
               <div className="mb-2">
-                <h3 className="text-sm font-bold text-[#10243f]">Zelles por verificar</h3>
-                <p className="text-[11px] text-slate-500">Confirma si el remitente es cuenta propia (transferencia) o un pago. Tu respuesta se guarda y la próxima vez se clasifica solo.</p>
+                <h3 className="text-sm font-bold text-[#10243f]">Zelles to verify</h3>
+                <p className="text-[11px] text-slate-500">Confirm whether the sender is your own account (transfer) or a payment. Your answer is saved and auto-applies next time.</p>
               </div>
               {sendersBusy && <p className="text-xs text-slate-500">Loading…</p>}
               {!sendersBusy && pendingSenders.length === 0 && (
-                <p className="text-xs text-slate-500">No hay remitentes pendientes este mes. ✓</p>
+                <p className="text-xs text-slate-500">No pending senders this month. ✓</p>
               )}
               {pendingSenders.map((p) => (
                 <div key={p.sender} className="mb-1.5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-white px-3 py-2">
@@ -1284,7 +1284,7 @@ export default function EstadoBancario() {
                 ))}
               </ul>
             )}
-            <p className="mt-2 text-[11px] text-slate-400">To schedule something (e.g. $400 daily until end of month): <b>+ Add</b> → Frec. → <b>Diaria</b>.</p>
+            <p className="mt-2 text-[11px] text-slate-400">To schedule something (e.g. $400 daily until end of month): <b>+ Add</b> → Freq. → <b>Daily</b>.</p>
           </div>
         </div>
 

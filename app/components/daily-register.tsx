@@ -153,9 +153,9 @@ export function DailyRegister({
   const closedTrips = useMemo(() => trips.filter((t) => t.status === 'closed'), [trips])
 
   const groups = useMemo(() => {
-    const m = new Map<string, { platform: string; entries: DailyTrip[]; gross: number; net: number; toll: number }>()
+    const m = new Map<string, { platform: string; locked: boolean; entries: DailyTrip[]; gross: number; net: number; toll: number }>()
     for (const t of openTrips) {
-      const g = m.get(t.platform) || { platform: t.platform, entries: [], gross: 0, net: 0, toll: 0 }
+      const g = m.get(t.platform) || { platform: t.platform, locked: false, entries: [], gross: 0, net: 0, toll: 0 }
       g.entries.push(t)
       g.gross += Number(t.gross) || 0
       g.net += Number(t.net) || 0
@@ -166,11 +166,13 @@ export function DailyRegister({
   }, [openTrips])
 
   const closedGroups = useMemo(() => {
-    const m = new Map<string, { platform: string; entries: DailyTrip[]; net: number }>()
+    const m = new Map<string, { platform: string; locked: boolean; entries: DailyTrip[]; gross: number; net: number; toll: number }>()
     for (const t of closedTrips) {
-      const g = m.get(t.platform) || { platform: t.platform, entries: [], net: 0 }
+      const g = m.get(t.platform) || { platform: t.platform, locked: true, entries: [], gross: 0, net: 0, toll: 0 }
       g.entries.push(t)
+      g.gross += Number(t.gross) || 0
       g.net += Number(t.net) || 0
+      g.toll += Number(t.toll) || 0
       m.set(t.platform, g)
     }
     return [...m.values()].sort((a, b) => a.platform.localeCompare(b.platform, 'es'))
@@ -180,13 +182,13 @@ export function DailyRegister({
   const regNet = useMemo(() => openTrips.reduce((s, t) => s + (Number(t.net) || 0), 0), [openTrips])
   const regToll = useMemo(() => openTrips.reduce((s, t) => s + (Number(t.toll) || 0), 0), [openTrips])
   const counts = {
-    all: openTrips.length,
+    all: openTrips.length + closedTrips.length,
     pending: openTrips.length,
     matched: closedTrips.length,
     difference: 0,
   }
 
-  const shownGroups = filter === 'matched' ? closedGroups : groups
+  const shownGroups = filter === 'matched' ? closedGroups : filter === 'pending' ? groups : [...groups, ...closedGroups]
 
   const patchTrip = async (tripId: string, patch: Record<string, any>) => {
     if (busy) return
@@ -397,8 +399,8 @@ export function DailyRegister({
         ) : (
           shownGroups.map((g) => {
             const badge = platformBadge(g.platform)
-            const locked = filter === 'matched'
-            const closing = closingPlat === g.platform
+            const locked = g.locked
+            const closing = closingPlat === g.platform && !locked
             return (
               <section key={g.platform} className="rounded-2xl border border-slate-200 bg-white p-2">
                 <header className="flex items-center gap-2 px-1">
@@ -424,13 +426,13 @@ export function DailyRegister({
                   )}
                 </header>
                 <p className="mt-0.5 px-1 text-[11px] text-slate-500">
-                  Gross <b className="tabular-nums text-amber-600">{money('gross' in g ? (g as any).gross : 0)}</b>
+                  Gross <b className="tabular-nums text-amber-600">{money(g.gross)}</b>
                   <span className="mx-1 text-slate-300">·</span>
                   Net <b className="tabular-nums text-green-600">{money(g.net)}</b>
-                  {'toll' in g && (g as any).toll > 0 && (
+                  {g.toll > 0 && (
                     <>
                       <span className="mx-1 text-slate-300">·</span>
-                      Toll <b className="tabular-nums text-sky-600">{money((g as any).toll)}</b>
+                      Toll <b className="tabular-nums text-sky-600">{money(g.toll)}</b>
                     </>
                   )}
                 </p>

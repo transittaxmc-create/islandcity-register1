@@ -484,7 +484,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
         onChange={(e) => setNewVen(e.target.value)}
         placeholder={placeholder}
         autoFocus
-        title="Nuevo vendedor"
+        title="New vendor"
         className={cls}
       />
     ) : (
@@ -495,12 +495,12 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           if (v === NEW_VEN) { setNewVenMode(true); setNewVen('') }
           else setEntry({ ...entry, detail: v })
         }}
-        title="Vendedor"
+        title="Vendor"
         className={cls}
       >
-        <option value="" disabled>— Vendedor —</option>
+        <option value="" disabled>— Vendor —</option>
         {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
-        <option value={NEW_VEN}>+ Añadir nuevo vendedor</option>
+        <option value={NEW_VEN}>+ Add new vendor</option>
       </select>
     )
 
@@ -510,9 +510,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
       <input
         value={newCat}
         onChange={(e) => setNewCat(e.target.value)}
-        placeholder="Nueva categoría…"
+        placeholder="New category…"
         autoFocus
-        title="Nueva categoría"
+        title="New category"
         className={cls}
       />
     ) : (
@@ -523,11 +523,11 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           if (v === NEW_CAT) { setNewCatMode(true); setNewCat('') }
           else setEntry({ ...entry, category: v })
         }}
-        title="Categoría"
+        title="Category"
         className={cls}
       >
         {catOptions.map((c) => (<option key={c} value={c}>{c}</option>))}
-        <option value={NEW_CAT}>+ Añadir nueva categoría</option>
+        <option value={NEW_CAT}>+ Add new category</option>
       </select>
     )
 
@@ -1051,27 +1051,27 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   // sticky bottom-0 dentro de la caja con scroll; fondo sólido para que las filas no se transparenten.
   const proyTotalsBar = (
     <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#16a34a] bg-[#f0faf8] px-4 py-2 text-sm">
-      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(mainBal)}</span>{otrosSum > 0 && (<button onClick={onOpenOtros} title="Ver en Ajustes \u2192 Proyecciones" className="ml-1 rounded-full bg-emerald-50 px-1.5 py-px align-middle text-[10px] font-bold text-emerald-700 hover:bg-emerald-100">+{num2(otrosSum)} otros</button>)}</span>
+      <span className="font-extrabold text-slate-800">Opening balance <span className="font-mono tabular-nums">{num2(mainBal)}</span>{otrosSum > 0 && (<button onClick={onOpenOtros} title="See in Settings \u2192 Projections" className="ml-1 rounded-full bg-emerald-50 px-1.5 py-px align-middle text-[10px] font-bold text-emerald-700 hover:bg-emerald-100">+{num2(otrosSum)} other</button>)}</span>
       <span className="font-semibold text-slate-500">
         <span className="text-[#16a34a]">+{num2(winInc)}</span>
         {' · '}
         <span className="text-red-500">−{num2(winExp)}</span>
       </span>
       <span className={`font-extrabold font-mono tabular-nums ${grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'}`}>
-        Final {money(grandTotal)}
+        Closing {money(grandTotal)}
       </span>
     </div>
   )
   const bancoTotalsBar = (
     <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-b-lg border-t-2 border-[#3b82f6] bg-blue-50 px-4 py-2 text-sm">
-      <span className="font-extrabold text-slate-800">Balance inicial <span className="font-mono tabular-nums">{num2(mainBal)}</span></span>
+      <span className="font-extrabold text-slate-800">Opening balance <span className="font-mono tabular-nums">{num2(mainBal)}</span></span>
       <span className="font-semibold text-slate-500">
         <span className="text-[#16a34a]">+{num2(bancoInc)}</span>
         {' · '}
         <span className="text-red-500">−{num2(bancoExp)}</span>
       </span>
       <span className={`font-extrabold font-mono tabular-nums ${mainBal + bancoInc - bancoExp < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-        Final {money(mainBal + bancoInc - bancoExp)}
+        Closing {money(mainBal + bancoInc - bancoExp)}
       </span>
     </div>
   )
@@ -1079,9 +1079,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   if (loading) {
     return (
       <div>
-        <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
-        <p className="mt-0.5 text-xs text-slate-500">Hoy → 31 de diciembre · banco principal + proyecciones.</p>
-        <p className="mt-6 text-sm text-slate-400">Cargando…</p>
+        <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Projections</h2>
+        <p className="mt-0.5 text-xs text-slate-500">Today → Dec 31 · main bank + projections.</p>
+        <p className="mt-6 text-sm text-slate-400">Loading…</p>
       </div>
     )
   }
@@ -1089,16 +1089,16 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   if (loadError) {
     return (
       <div>
-        <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
-        <p className="mt-6 text-sm text-slate-500">No se pudieron cargar los datos. Revisa tu conexión e inténtalo de nuevo.</p>
-        <button onClick={() => window.location.reload()} className="mt-3 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Reintentar</button>
+        <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Projections</h2>
+        <p className="mt-6 text-sm text-slate-500">Couldn't load the data. Check your connection and try again.</p>
+        <button onClick={() => window.location.reload()} className="mt-3 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Retry</button>
       </div>
     )
   }
 
   return (
     <div>
-      <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Proyecciones</h2>
+      <h2 className="text-[22px] font-extrabold tracking-tight text-slate-900">Projections</h2>
       <p className="mt-0.5 text-xs text-slate-500">
         {fmtD(today)} → 31 dic {year} · banco principal + proyecciones.
       </p>
@@ -1113,7 +1113,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
           }`}
         >
-          <span className="text-base">🏦</span> Banco
+          <span className="text-base">🏦</span> Bank
         </button>
         <button
           onClick={() => pickView('proyecciones')}
@@ -1123,21 +1123,21 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
           }`}
         >
-          <span className="text-base">🔮</span> Proyecciones
+          <span className="text-base">🔮</span> Projections
         </button>
       </div>
 
       {/* KPIs */}
       <section className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Kpi icon={IBar} label="Ingresos proyectados" value={money(winInc)} sub={`${winIncCount} movimientos`} valueColor="text-[#16a34a]" accent="#16a34a" />
-        <Kpi icon={ICart} label="Gastos proyectados" value={money(winExp)} sub={`${winExpCount} movimientos`} valueColor="text-slate-800" accent="#f59e0b" />
-        <Kpi icon={IDb} label="Balance bancario" value={money(bankTotal)} sub={`${accounts.length} cuentas · a hoy`} valueColor="text-slate-800" accent="#3b82f6" />
-        <Kpi icon={IPct} label="Balance total" value={money(grandTotal)} sub="Banco + proy. − proy." valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
+        <Kpi icon={IBar} label="Projected income" value={money(winInc)} sub={`${winIncCount} items · today → Dec 31`} valueColor="text-[#16a34a]" accent="#16a34a" />
+        <Kpi icon={ICart} label="Projected expenses" value={money(winExp)} sub={`${winExpCount} items · today → Dec 31`} valueColor="text-slate-800" accent="#f59e0b" />
+        <Kpi icon={IDb} label="Bank balance · All accounts" value={money(bankTotal)} sub={`${accounts.length} accounts · today · Plaid`} valueColor="text-slate-800" accent="#3b82f6" />
+        <Kpi icon={IPct} label="Projected closing" value={money(grandTotal)} sub={otrosSum > 0 ? "Bank + other funds + projected income − projected expenses" : "Bank + projected income − projected expenses"} valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
         <Kpi
           icon={IAlert}
-          label="Punto crítico"
+          label="Lowest point"
           value={criticalPt ? money(criticalPt.closing) : '—'}
-          sub={criticalPt ? `${fmtD(criticalPt.date)}${criticalPt.closing < safetyFloor ? ' · bajo mínimo' : ''}` : 'sin datos'}
+          sub={criticalPt ? `${fmtD(criticalPt.date)}${criticalPt.closing < safetyFloor ? ' · below minimum' : ''}` : 'no data'}
           valueColor={criticalPt && criticalPt.closing < safetyFloor ? 'text-red-600' : criticalPt && criticalPt.closing < 0 ? 'text-red-600' : 'text-slate-800'}
           accent="#ef4444"
         />
@@ -1150,8 +1150,8 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
         <div className={card}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className={h3}>Proyecciones</h3>
-              <p className="mt-0.5 text-[11px] text-slate-400">Ingresos y gastos recurrentes. Se suman a los totales de arriba.</p>
+              <h3 className={h3}>Recurring rules</h3>
+              <p className="mt-0.5 text-[11px] text-slate-400">Recurring income and expenses. They feed the totals above.</p>
             </div>
 
           </div>
@@ -1159,13 +1159,13 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
             <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead>
                 <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Inicio</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detalle</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Categoría</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Tipo</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Frecuencia</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Hasta cuándo</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Start</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Detail</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Category</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Type</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Amount</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Frequency</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Until</th>
                   <th className="border-b border-slate-200 px-2 py-2 text-right font-medium"></th>
                 </tr>
               </thead>
@@ -1187,14 +1187,14 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                       <td className="whitespace-nowrap px-2 py-2 text-xs font-semibold text-slate-500">{freqLabel(r.frequency)}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-xs tabular-nums text-slate-500">{r.end_date ? fmtD(r.end_date) : '—'}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-right">
-                        <button onClick={() => startEdit(r.id, nextOccurrence(r.id))} title="Editar proyección" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-blue-50 hover:text-blue-600">✎</button>
-                        <button onClick={() => deleteRule(r.id)} title="Borrar proyección" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
+                        <button onClick={() => startEdit(r.id, nextOccurrence(r.id))} title="Edit projection" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-blue-50 hover:text-blue-600">✎</button>
+                        <button onClick={() => deleteRule(r.id)} title="Delete projection" className="rounded-lg px-2 py-1 text-xs font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
                       </td>
                     </tr>
                   )
                 })}
                 {ruleItems.length === 0 && (
-                  <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">Sin proyecciones. Entra tus ingresos y gastos en la primera fila del Registro.</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">No projections yet. Enter income and expenses in the register's first row.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1205,7 +1205,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
       {/* Barras + Daily — solo ventana de proyección */}
       <section className="mt-3 grid gap-3 xl:grid-cols-5">
         <div className={`${card} xl:col-span-3`}>
-          <h3 className={h3}>Proyectado por mes</h3>
+          <h3 className={h3}>Projected by month</h3>
           <div className="mt-2 flex gap-2">
             <div className="flex h-[110px] w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-slate-400">
               {barTicks.map((t) => (
@@ -1222,8 +1222,8 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                 <div className="relative flex h-[110px] items-end gap-1 sm:gap-2">
                   {winMonths.map((m) => (
                     <div key={m.ym} className="flex h-full flex-1 items-end justify-center gap-1">
-                      <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.inc / maxBar) * 100}%`, background: BLUE }} title={`Ingresos ${money(m.inc)}`} />
-                      <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.exp / maxBar) * 100}%`, background: ORANGE }} title={`Gastos ${money(m.exp)}`} />
+                      <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.inc / maxBar) * 100}%`, background: BLUE }} title={`Income ${money(m.inc)}`} />
+                      <div className="w-full max-w-[20px] rounded-t-[3px]" style={{ height: `${(m.exp / maxBar) * 100}%`, background: ORANGE }} title={`Expenses ${money(m.exp)}`} />
                     </div>
                   ))}
                 </div>
@@ -1238,15 +1238,15 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
             </div>
           </div>
           <div className="mt-2 flex items-center gap-5 text-xs font-semibold text-slate-600">
-            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-[3px]" style={{ background: BLUE }} /> Ingresos</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-[3px]" style={{ background: ORANGE }} /> Gastos</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-[3px]" style={{ background: BLUE }} /> Income</span>
+            <span className="flex items-center gap-1.5"><i className="inline-block size-2.5 rounded-[3px]" style={{ background: ORANGE }} /> Expenses</span>
           </div>
         </div>
 
         <div className={`${card} xl:col-span-2`}>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h3 className={h3}>Daily</h3>
-            <p className="text-[11px] text-slate-400">Entrada del día · {fmtD(draftWorkDate)}{draftWorkDate !== today ? ' (sin cerrar)' : ''}</p>
+            <p className="text-[11px] text-slate-400">Today's entries · {fmtD(draftWorkDate)}{draftWorkDate !== today ? ' (not closed)' : ''}</p>
           </div>
 
           {/* Entrada rápida: plataforma + monto */}
@@ -1255,9 +1255,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               <input
                 value={dPlatNew}
                 onChange={(e) => setDPlatNew(e.target.value)}
-                placeholder="Nueva plataforma…"
+                placeholder="New platform…"
                 autoFocus
-                title="Nueva plataforma"
+                title="New platform"
                 className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
               />
             ) : (
@@ -1268,12 +1268,12 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                   if (v === DNEW_PLAT) { setDPlatNewMode(true); setDPlatNew('') }
                   else setDPlat(v)
                 }}
-                title="Plataforma"
+                title="Platform"
                 className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700"
               >
-                <option value="" disabled>— Plataforma —</option>
+                <option value="" disabled>— Platform —</option>
                 {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
-                <option value={DNEW_PLAT}>+ Añadir nueva plataforma</option>
+                <option value={DNEW_PLAT}>+ Add new platform</option>
               </select>
             )}
             <input
@@ -1284,21 +1284,21 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               onChange={(e) => setDAmt(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') addDraft() }}
               placeholder="$ 0.00"
-              title="Monto"
+              title="Amount"
               className="min-w-0 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-xs font-semibold tabular-nums"
             />
-            <button onClick={addDraft} disabled={dailyBusy} title="Agregar entrada" className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#16a34a] text-base font-bold leading-none text-white disabled:opacity-40">+</button>
+            <button onClick={addDraft} disabled={dailyBusy} title="Add entry" className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#16a34a] text-base font-bold leading-none text-white disabled:opacity-40">+</button>
           </div>
           {dPlatNewMode && (
             <div className="mt-1 flex justify-end">
-              <button onClick={() => { setDPlatNewMode(false); setDPlatNew('') }} className="text-[11px] font-semibold text-slate-400">Cancelar</button>
+              <button onClick={() => { setDPlatNewMode(false); setDPlatNew('') }} className="text-[11px] font-semibold text-slate-400">Cancel</button>
             </div>
           )}
 
           {/* Lista del día: editable */}
           <div className="mt-2 max-h-[180px] overflow-y-auto overscroll-contain rounded-lg border border-slate-100">
             {drafts.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-slate-400">Sin entradas hoy. Agrega cada trabajo arriba.</p>
+              <p className="px-3 py-4 text-center text-xs text-slate-400">No entries today. Add each job above.</p>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {drafts.map((d) => (
@@ -1314,7 +1314,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                         {venOptions.map((v) => (<option key={v} value={v}>{v}</option>))}
                       </select>
                     ) : (
-                      <button onClick={() => setDEditPlatId(d.id)} title="Cambiar plataforma" className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-slate-700">{d.platform}</button>
+                      <button onClick={() => setDEditPlatId(d.id)} title="Change platform" className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-slate-700">{d.platform}</button>
                     )}
                     {dEditId === d.id ? (
                       <input
@@ -1328,9 +1328,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                         className="w-20 shrink-0 rounded border border-slate-200 px-1 py-1 text-right text-xs font-semibold tabular-nums"
                       />
                     ) : (
-                      <button onClick={() => { setDEditId(d.id); setDEditAmt(String(d.amount)) }} title="Editar monto" className="shrink-0 text-xs font-bold tabular-nums text-slate-700">{money(d.amount)}</button>
+                      <button onClick={() => { setDEditId(d.id); setDEditAmt(String(d.amount)) }} title="Edit amount" className="shrink-0 text-xs font-bold tabular-nums text-slate-700">{money(d.amount)}</button>
                     )}
-                    <button onClick={() => delDraft(d.id)} title="Borrar entrada" className="grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold text-slate-300 hover:bg-red-50 hover:text-red-500">✕</button>
+                    <button onClick={() => delDraft(d.id)} title="Delete entry" className="grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold text-slate-300 hover:bg-red-50 hover:text-red-500">✕</button>
                   </li>
                 ))}
               </ul>
@@ -1338,25 +1338,25 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           </div>
 
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-slate-500">Total del día <span className="font-bold tabular-nums text-slate-800">{money(draftTotal)}</span></span>
-            <button onClick={openClose} disabled={drafts.length === 0 || dailyBusy} className="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">Cerrar el día</button>
+            <span className="text-xs font-semibold text-slate-500">Day total <span className="font-bold tabular-nums text-slate-800">{money(draftTotal)}</span></span>
+            <button onClick={openClose} disabled={drafts.length === 0 || dailyBusy} className="shrink-0 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">Close day</button>
           </div>
 
           {/* Cierre: fecha de pago por plataforma */}
           {closing && (
             <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-              <p className="text-xs font-bold text-slate-700">Fecha de pago por plataforma</p>
+              <p className="text-xs font-bold text-slate-700">Pay date per platform</p>
               <ul className="mt-1 space-y-1">
                 {closeTotals.map((x) => (
                   <li key={x.platform} className="flex items-center gap-2">
                     <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-600">{x.platform} · <span className="tabular-nums">{money(x.total)}</span></span>
-                    <input type="date" value={payDates[x.platform] || today} onChange={(e) => setPayDates((pr) => ({ ...pr, [x.platform]: e.target.value }))} title="Fecha de pago" className="shrink-0 rounded border border-slate-200 px-1 py-1 text-xs" />
+                    <input type="date" value={payDates[x.platform] || today} onChange={(e) => setPayDates((pr) => ({ ...pr, [x.platform]: e.target.value }))} title="Pay date" className="shrink-0 rounded border border-slate-200 px-1 py-1 text-xs" />
                   </li>
                 ))}
               </ul>
               <div className="mt-2 flex justify-end gap-2">
-                <button onClick={() => setClosing(false)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500">Cancelar</button>
-                <button onClick={confirmClose} disabled={dailyBusy} className="rounded-lg bg-[#16a34a] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">Confirmar cierre</button>
+                <button onClick={() => setClosing(false)} className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500">Cancel</button>
+                <button onClick={confirmClose} disabled={dailyBusy} className="rounded-lg bg-[#16a34a] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">Confirm close</button>
               </div>
             </div>
           )}
@@ -1364,7 +1364,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           {/* Depósitos pendientes de emparejar */}
           {dailyPending.length > 0 && (
             <div className="mt-3">
-              <p className="text-xs font-bold text-slate-700">Depósitos pendientes ({dailyPending.length})</p>
+              <p className="text-xs font-bold text-slate-700">Pending deposits ({dailyPending.length})</p>
               <ul className="mt-1 space-y-1">
                 {dailyPending.map((r) => (
                   <li key={String(r.id)} className="rounded-lg border border-amber-200 bg-amber-50/60 px-2 py-1.5">
@@ -1372,12 +1372,12 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                       <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">🔮 {r.platform}</span>
                       <span className="shrink-0 text-xs font-bold tabular-nums text-slate-800">{money(r.amount)}</span>
                       <span className="shrink-0 text-[10px] tabular-nums text-slate-500">{fmtD(String(r.pay_day))}</span>
-                      <button onClick={() => { setMatchRuleId(String(r.id)); setMatchTxId('') }} title="Emparejar con depósito real" className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600 shadow-sm">Emparejar</button>
+                      <button onClick={() => { setMatchRuleId(String(r.id)); setMatchTxId('') }} title="Match with actual bank deposit" className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-blue-600 shadow-sm">Match</button>
                     </div>
                     {String(matchRuleId) === String(r.id) && (
                       <div className="mt-1.5 rounded-md bg-white p-1.5">
                         <select value={matchTxId} onChange={(e) => setMatchTxId(e.target.value)} className="w-full rounded border border-slate-200 px-1 py-1 text-xs">
-                          <option value="" disabled>— Depósito real en el banco —</option>
+                          <option value="" disabled>— Actual bank deposit —</option>
                           {matchCandidates.map((x) => (
                             <option key={String(x.id)} value={String(x.id)}>{fmtD(x.date)} · {(x.detail || '').slice(0, 32)} · {money(Number(x.credit) || 0)}</option>
                           ))}
@@ -1390,10 +1390,10 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                           const diff = Math.abs(prog - real) >= 0.005
                           return (
                             <div className="mt-1.5 flex items-center justify-between gap-2">
-                              <span className="text-[11px] text-slate-500">Programado <b className="tabular-nums">{money(prog)}</b> vs real <b className="tabular-nums">{money(real)}</b></span>
+                              <span className="text-[11px] text-slate-500">Scheduled <b className="tabular-nums">{money(prog)}</b> vs actual <b className="tabular-nums">{money(real)}</b></span>
                               <div className="flex shrink-0 gap-1.5">
-                                <button onClick={() => { setMatchRuleId(null); setMatchTxId('') }} className="rounded px-2 py-1 text-[11px] font-bold text-slate-400">Cancelar</button>
-                                <button onClick={confirmMatch} disabled={dailyBusy} className="rounded bg-[#16a34a] px-2 py-1 text-[11px] font-bold text-white disabled:opacity-40">{diff ? `Ajustar a ${money(real)} y marcar cumplido` : 'Marcar cumplido'}</button>
+                                <button onClick={() => { setMatchRuleId(null); setMatchTxId('') }} className="rounded px-2 py-1 text-[11px] font-bold text-slate-400">Cancel</button>
+                                <button onClick={confirmMatch} disabled={dailyBusy} className="rounded bg-[#16a34a] px-2 py-1 text-[11px] font-bold text-white disabled:opacity-40">{diff ? `Adjust to ${money(real)} and mark fulfilled` : 'Mark fulfilled'}</button>
                               </div>
                             </div>
                           )
@@ -1409,7 +1409,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
           {/* Historial de días cerrados */}
           {closes.length > 0 && (
             <div className="mt-3">
-              <button onClick={() => setShowHist((v) => !v)} className="text-xs font-bold text-slate-500">Días cerrados ({closes.length}) {showHist ? '▾' : '▸'}</button>
+              <button onClick={() => setShowHist((v) => !v)} className="text-xs font-bold text-slate-500">Closed days ({closes.length}) {showHist ? '▾' : '▸'}</button>
               {showHist && (
                 <ul className="mt-1 max-h-[160px] space-y-1.5 overflow-y-auto overscroll-contain">
                   {closes.map((c, i) => (
@@ -1422,7 +1422,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                             {money(it.total)}
                             {it.status === 'fulfilled'
                               ? <span className="ml-1 rounded-full bg-green-100 px-1.5 py-px text-[9px] font-bold text-green-700">✓ {money(it.realAmount || 0)}</span>
-                              : <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-bold text-amber-700">Pendiente</span>}
+                              : <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-bold text-amber-700">Pending</span>}
                           </span>
                         </p>
                       ))}
@@ -1441,15 +1441,15 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
         <div className={`${card} flex flex-col`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3">
-              <h3 className={h3}>Registro</h3>
-              <p className="text-[11px] text-slate-400">{fmtD(today)} → 31 dic {year} · reales + proyectadas</p>
+              <h3 className={h3}>Register</h3>
+              <p className="text-[11px] text-slate-400">{fmtD(today)} → Dec 31 {year} · actual + projected</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="text-[11px] font-semibold text-slate-500">Banco</label>
+              <label className="text-[11px] font-semibold text-slate-500">Bank</label>
               <select
                 value={effMain}
                 onChange={(e) => pickMain(e.target.value)}
-                title="Banco principal para proyecciones"
+                title="Main bank for projections"
                 className="max-w-[180px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
               >
                 {accounts.map((a) => (
@@ -1459,32 +1459,32 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               <select
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value)}
-                title="Ordenar"
+                title="Sort"
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600"
               >
-                <option value="date-desc">Fecha ↓</option>
-                <option value="date-asc">Fecha ↑</option>
-                <option value="entity">Detalle A–Z</option>
-                <option value="amount-desc">Monto ↓</option>
-                <option value="amount-asc">Monto ↑</option>
+                <option value="date-desc">Date ↓</option>
+                <option value="date-asc">Date ↑</option>
+                <option value="entity">Detail A–Z</option>
+                <option value="amount-desc">Amount ↓</option>
+                <option value="amount-asc">Amount ↑</option>
               </select>
               <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-500">
                 <input type="checkbox" checked={hideTransfers} onChange={(e) => setHideTr(e.target.checked)} className="size-3.5 rounded" />
-                Ocultar transfers
+                Hide transfers
               </label>
               <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
-                Mínimo $
+                Min $
                 <input
                   type="number"
                   inputMode="decimal"
                   value={safetyFloor}
                   onChange={(e) => setFloor(Number(e.target.value))}
-                  title="Balance mínimo (safety floor)"
+                  title="Minimum balance (safety floor)"
                   className="w-20 rounded border border-slate-200 px-1 py-0.5 text-right font-mono text-xs"
                 />
               </label>
               <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
-                {movesSorted.length} movs
+                {movesSorted.length} items
               </span>
             </div>
           </div>
@@ -1494,9 +1494,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Descripción</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Date</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Description</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -1504,19 +1504,19 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                 <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
                   <td colSpan={3} className="px-2 py-2">
                     <div className="grid grid-cols-2 gap-1.5">
-                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Ocurrencia que estás editando' : 'Inicio'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
+                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Occurrence you are editing' : 'Start'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
                       {vendorField('rounded border border-slate-200 px-1.5 py-1.5 text-xs', 'Vendedor')}
                       {catField('rounded border border-slate-200 px-1.5 py-1.5 text-xs')}
                       <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs font-semibold">
                         {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
                       </select>
-                      <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="Ingreso" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
-                      <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Gasto" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
-                      <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
+                      <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="Income" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Expense" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Until (optional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
                       <div className="flex items-center justify-end gap-1.5">
-                        {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editando</span>)}
-                        <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Guardar cambios' : 'Guardar proyección'} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
-                        <button onClick={cancelEdit} title={editing ? 'Cancelar edición' : 'Limpiar'} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
+                        {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editing</span>)}
+                        <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Save changes' : 'Save projection'} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Save</button>
+                        <button onClick={cancelEdit} title={editing ? 'Cancel edit' : 'Clear'} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
                       </div>
                     </div>
                   </td>
@@ -1524,19 +1524,19 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                 {scopeAsk && editing && (
                   <tr className="border-b border-slate-200 bg-sky-50/70">
                     <td colSpan={3} className="px-2 py-2">
-                      <div className="text-xs font-extrabold text-slate-700">¿A cuáles aplica el cambio?</div>
+                      <div className="text-xs font-extrabold text-slate-700">Which entries does this change apply to?</div>
                       <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                        <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Solo esta</button>
-                        <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las pasadas</button>
-                        <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las futuras</button>
-                        <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-2 py-2 text-xs font-bold text-white disabled:opacity-50">Todas</button>
+                        <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Only this one</button>
+                        <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">This and past ones</button>
+                        <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">This and future ones</button>
+                        <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-2 py-2 text-xs font-bold text-white disabled:opacity-50">All</button>
                       </div>
-                      <button onClick={() => setScopeAsk(false)} className="mt-1.5 text-xs font-semibold text-slate-400 underline">Cancelar</button>
+                      <button onClick={() => setScopeAsk(false)} className="mt-1.5 text-xs font-semibold text-slate-400 underline">Cancel</button>
                     </td>
                   </tr>
                 )}
                 {movesSorted.length === 0 ? (
-                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — entra tu proyección en la primera fila.</td></tr>
+                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">No entries — enter your projection in the first row.</td></tr>
                 ) : (
                   movesSorted.map((r) => {
                     const isProj = r.key.startsWith('pj-')
@@ -1556,15 +1556,15 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                             </div>
                             {isProj && (
                               <span className="flex shrink-0 items-center gap-1 pt-px">
-                                <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
+                                <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proj</span>
                                 {r.frequency && (
                                   <span className="rounded-full bg-blue-50 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-blue-600">{freqLabel(r.frequency)}</span>
                                 )}
                                 {r.ruleId && (
-                                  <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
+                                  <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Edit projection" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
                                 )}
                                 {r.ruleId && (
-                                  <button onClick={() => deleteOccurrence(r.ruleId as string, r.date)} title="Borrar esta proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
+                                  <button onClick={() => deleteOccurrence(r.ruleId as string, r.date)} title="Delete this occurrence" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
                                 )}
                               </span>
                             )}
@@ -1593,21 +1593,21 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Vendedor</th>
-                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Categoría</th>
-                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Frecuencia</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Ingreso</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Gasto</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance banco</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance proyectado</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Date</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Vendor</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Category</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Frequency</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Income</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Expense</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Bank balance</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Projected balance</th>
                 </tr>
               </thead>
               <tbody>
                 {/* Fila de entrada: primera línea del register */}
                 <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
                   <td className="px-2 py-2">
-                    <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Ocurrencia que estás editando' : 'Inicio'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="w-full rounded border border-slate-200 px-1 py-1 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
+                    <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Occurrence you are editing' : 'Start'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="w-full rounded border border-slate-200 px-1 py-1 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
                   </td>
                   <td className="px-2 py-2">
                     {vendorField('w-full rounded border border-slate-200 px-1 py-1 text-xs', 'Nuevo vendedor…')}
@@ -1619,7 +1619,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                     <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="w-full rounded border border-slate-200 px-1 py-1 text-xs font-semibold">
                       {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
                     </select>
-                    <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="mt-1 w-full rounded border border-slate-200 px-1 py-1 text-xs text-slate-500" />
+                    <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Until (optional)" className="mt-1 w-full rounded border border-slate-200 px-1 py-1 text-xs text-slate-500" />
                   </td>
                   <td className="px-2 py-2">
                     <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="0.00" className="w-full rounded border border-slate-200 px-1 py-1 text-right font-mono text-xs" />
@@ -1630,9 +1630,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                   <td className="px-2 py-2 text-center text-xs text-slate-300">—</td>
                   <td className="px-2 py-2">
                     <div className="flex items-center justify-end gap-1">
-                      {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editando</span>)}
-                      <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Guardar cambios' : 'Guardar proyección'} className="rounded-lg bg-[#40b9a1] px-2.5 py-1 text-xs font-bold text-[#10243f] disabled:opacity-50">✓</button>
-                      <button onClick={cancelEdit} title={editing ? 'Cancelar edición' : 'Limpiar'} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">✕</button>
+                      {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editing</span>)}
+                      <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Save changes' : 'Save projection'} className="rounded-lg bg-[#40b9a1] px-2.5 py-1 text-xs font-bold text-[#10243f] disabled:opacity-50">✓</button>
+                      <button onClick={cancelEdit} title={editing ? 'Cancel edit' : 'Clear'} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-500">✕</button>
                     </div>
                   </td>
                 </tr>
@@ -1640,18 +1640,18 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                     <tr className="border-b border-slate-200 bg-sky-50/70">
                       <td colSpan={8} className="px-3 py-2">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="mr-1 text-xs font-extrabold text-slate-700">¿A cuáles aplica el cambio?</span>
-                          <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">Solo esta</button>
-                          <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las pasadas</button>
-                          <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las futuras</button>
-                          <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">Todas</button>
-                          <button onClick={() => setScopeAsk(false)} className="text-xs font-semibold text-slate-400 underline">Cancelar</button>
+                          <span className="mr-1 text-xs font-extrabold text-slate-700">Which entries does this change apply to?</span>
+                          <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">Only this one</button>
+                          <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">This and past ones</button>
+                          <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50">This and future ones</button>
+                          <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">All</button>
+                          <button onClick={() => setScopeAsk(false)} className="text-xs font-semibold text-slate-400 underline">Cancel</button>
                         </div>
                       </td>
                     </tr>
                   )}
                 {movesSorted.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">Sin movimientos — entra tu proyección en la primera fila.</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-slate-400">No entries — enter your projection in the first row.</td></tr>
                 ) : (
                   movesSorted.map((r) => {
                     const isProj = r.key.startsWith('pj-')
@@ -1671,9 +1671,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                             </div>
                             {isProj && r.ruleId && (
                               <span className="flex shrink-0 items-center gap-1 pt-px">
-                                <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proy</span>
-                                <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Editar proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
-                                <button onClick={() => deleteOccurrence(r.ruleId as string, r.date)} title="Borrar esta proyección" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
+                                <span className="rounded-full bg-amber-100 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wide text-amber-700">Proj</span>
+                                <button onClick={() => startEdit(r.ruleId as string, r.date)} title="Edit projection" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-500">✎</button>
+                                <button onClick={() => deleteOccurrence(r.ruleId as string, r.date)} title="Delete this occurrence" className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold text-slate-400 hover:bg-red-50 hover:text-red-600">✕</button>
                               </span>
                             )}
                           </div>
@@ -1709,15 +1709,15 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
         <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-baseline gap-x-3">
-              <h3 className={h3}>Banco · {mainAcct ? shortBank(mainAcct) : ''}</h3>
-              <p className="text-[11px] text-slate-400">Transacciones reales · últimos 30 días</p>
+              <h3 className={h3}>Bank · {mainAcct ? shortBank(mainAcct) : ''}</h3>
+              <p className="text-[11px] text-slate-400">Actual transactions · last 30 days</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="text-[11px] font-semibold text-slate-500">Banco</label>
+              <label className="text-[11px] font-semibold text-slate-500">Bank</label>
               <select
                 value={effMain}
                 onChange={(e) => pickMain(e.target.value)}
-                title="Banco para ver"
+                title="Bank to view"
                 className="max-w-[180px] rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
               >
                 {accounts.map((a) => (
@@ -1726,10 +1726,10 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
               </select>
               <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-slate-500">
                 <input type="checkbox" checked={hideTransfers} onChange={(e) => setHideTr(e.target.checked)} className="size-3.5 rounded" />
-                Ocultar transfers
+                Hide transfers
               </label>
               <span className="shrink-0 rounded-full bg-slate-100 px-3 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500">
-                {bancoRows.length} movs
+                {bancoRows.length} items
               </span>
             </div>
           </div>
@@ -1739,9 +1739,9 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Descripción</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Monto</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Date</th>
+                  <th className="border-b border-slate-200 px-2 py-2 font-medium">Description</th>
+                  <th className="border-b border-slate-200 px-2 py-2 text-right font-medium">Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -1749,19 +1749,19 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                 <tr className="border-b-2 border-[#40b9a1] bg-emerald-50/60">
                   <td colSpan={3} className="px-2 py-2">
                     <div className="grid grid-cols-2 gap-1.5">
-                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Ocurrencia que estás editando' : 'Inicio'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
+                      <input type="date" value={entry.date} onChange={(e) => setEntry({ ...entry, date: e.target.value })} title={editing ? 'Occurrence you are editing' : 'Start'} disabled={!!editing && editing.frequency !== 'Un solo pago'} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs disabled:bg-slate-100 disabled:text-slate-400" />
                       {vendorField('rounded border border-slate-200 px-1.5 py-1.5 text-xs', 'Vendedor')}
                       {catField('rounded border border-slate-200 px-1.5 py-1.5 text-xs')}
                       <select value={entry.frequency} onChange={(e) => setEntry({ ...entry, frequency: e.target.value })} className="rounded border border-slate-200 px-1.5 py-1.5 text-xs font-semibold">
                         {FREQS.map(([v, label]) => (<option key={v} value={v}>{label}</option>))}
                       </select>
-                      <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="Ingreso" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
-                      <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Gasto" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
-                      <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Hasta cuándo (opcional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
+                      <input type="number" inputMode="decimal" value={entry.inc} onChange={(e) => setEntry({ ...entry, inc: e.target.value })} placeholder="Income" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="number" inputMode="decimal" value={entry.exp} onChange={(e) => setEntry({ ...entry, exp: e.target.value })} placeholder="Expense" className="rounded border border-slate-200 px-1.5 py-1.5 text-right font-mono text-xs" />
+                      <input type="date" value={entry.end_date} onChange={(e) => setEntry({ ...entry, end_date: e.target.value })} title="Until (optional)" className="rounded border border-slate-200 px-1.5 py-1.5 text-xs text-slate-500" />
                       <div className="flex items-center justify-end gap-1.5">
-                        {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editando</span>)}
-                        <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Guardar cambios' : 'Guardar proyección'} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Guardar</button>
-                        <button onClick={cancelEdit} title={editing ? 'Cancelar edición' : 'Limpiar'} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
+                        {editing && (<span className="mr-1 rounded-full bg-[#40b9a1]/15 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-[#0f766e]">Editing</span>)}
+                        <button onClick={() => commitEntry()} disabled={ruleBusy} title={editing ? 'Save changes' : 'Save projection'} className="rounded-lg bg-[#40b9a1] px-3 py-1.5 text-xs font-bold text-[#10243f] disabled:opacity-50">✓ Save</button>
+                        <button onClick={cancelEdit} title={editing ? 'Cancel edit' : 'Clear'} className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-500">✕</button>
                       </div>
                     </div>
                   </td>
@@ -1769,19 +1769,19 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
                 {scopeAsk && editing && (
                   <tr className="border-b border-slate-200 bg-sky-50/70">
                     <td colSpan={3} className="px-2 py-2">
-                      <div className="text-xs font-extrabold text-slate-700">¿A cuáles aplica el cambio?</div>
+                      <div className="text-xs font-extrabold text-slate-700">Which entries does this change apply to?</div>
                       <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                        <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Solo esta</button>
-                        <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las pasadas</button>
-                        <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Esta y las futuras</button>
-                        <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-2 py-2 text-xs font-bold text-white disabled:opacity-50">Todas</button>
+                        <button onClick={() => commitEntry('solo')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Only this one</button>
+                        <button onClick={() => commitEntry('atras')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">This and past ones</button>
+                        <button onClick={() => commitEntry('adelante')} disabled={ruleBusy} className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">This and future ones</button>
+                        <button onClick={() => commitEntry('todas')} disabled={ruleBusy} className="rounded-lg bg-[#1c3d5e] px-2 py-2 text-xs font-bold text-white disabled:opacity-50">All</button>
                       </div>
-                      <button onClick={() => setScopeAsk(false)} className="mt-1.5 text-xs font-semibold text-slate-400 underline">Cancelar</button>
+                      <button onClick={() => setScopeAsk(false)} className="mt-1.5 text-xs font-semibold text-slate-400 underline">Cancel</button>
                     </td>
                   </tr>
                 )}
                 {bancoRows.length === 0 ? (
-                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
+                  <tr><td colSpan={3} className="px-4 py-8 text-center text-sm text-slate-400">No actual transactions in this period.</td></tr>
                 ) : (
                   bancoRows.map((t) => {
                     const inc = Number(t.credit) || 0
@@ -1814,17 +1814,17 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-white">
                 <tr className="text-left text-[11px] text-slate-400">
-                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Fecha</th>
-                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Vendedor</th>
-                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Categoría</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Ingreso</th>
-                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Gasto</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Date</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Vendor</th>
+                  <th className="border-b border-slate-200 px-3 py-2 font-medium">Category</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Income</th>
+                  <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Expense</th>
                   <th className="border-b border-slate-200 px-3 py-2 text-right font-medium">Balance</th>
                 </tr>
               </thead>
               <tbody>
                 {bancoRows.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">Sin transacciones reales en la ventana.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">No actual transactions in this period.</td></tr>
                 ) : (
                   bancoRows.map((t) => {
                     const inc = Number(t.credit) || 0
@@ -1915,15 +1915,15 @@ export function OtrosFondosBox() {
 
   return (
     <div className="rounded-2xl border border-[#dce5ef] bg-white p-6 shadow-sm">
-      <h3 className="font-bold">Otros fondos</h3>
+      <h3 className="font-bold">Other funds</h3>
       <p className="mt-1 text-xs text-slate-500">
-        Suma a la proyección el cash de tus otras cuentas. Solo afecta Proyecciones; el Banco no se toca.
+        Adds cash from your other accounts to the projection. Projections only — Bank is untouched.
       </p>
       <div className="mt-4 max-h-56 overflow-y-auto rounded-xl border border-slate-200">
         {!loaded ? (
-          <p className="px-4 py-6 text-center text-xs text-slate-400">Cargando cuentas…</p>
+          <p className="px-4 py-6 text-center text-xs text-slate-400">Loading accounts…</p>
         ) : rows.length === 0 ? (
-          <p className="px-4 py-6 text-center text-xs text-slate-400">Ninguna cuenta con balance positivo.</p>
+          <p className="px-4 py-6 text-center text-xs text-slate-400">No accounts with a positive balance.</p>
         ) : (
           rows.map((a) => (
             <label key={a.name} className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-2.5 last:border-0 hover:bg-slate-50">
@@ -1935,8 +1935,8 @@ export function OtrosFondosBox() {
         )}
       </div>
       <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-        Solo aparecen cuentas con balance positivo (la lista es corta). La cuenta principal de proyecciones no aparece aquí porque ya es la base.
-        {sum > 0 && <span className="font-bold text-[#16a34a]"> Activo: +{money(sum)} en la proyección.</span>}
+        Only accounts with a positive balance appear (short list). The main projection account isn't listed — it's already the base.
+        {sum > 0 && <span className="font-bold text-[#16a34a]"> Activo: +{money(sum)} in the projection.</span>}
       </p>
     </div>
   )

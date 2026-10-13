@@ -2,18 +2,23 @@
 
 import { useState } from 'react'
 
-// Platform logos (Miguel's platforms) served from /public/logos.
-// Case-insensitive mapping from platform name → logo file.
+// Platform logos (Miguel's platforms). They live in his claris repo
+// (transittaxmc-create/claris, public/logos) pinned to an immutable commit,
+// served via raw.githubusercontent.com.
+// Case-insensitive mapping from platform name → logo URL.
+const LOGO_BASE =
+  'https://raw.githubusercontent.com/transittaxmc-create/claris/25cc621d2247d2f1f9a7194782106500d16a6606/public/logos'
+
 const LOGO_MAP: Record<string, string> = {
-  'uber': '/logos/uber.jpg',
-  'lyft': '/logos/lyft.jpg',
-  'eco ride': '/logos/eco-ride.jpg',
-  'throo': '/logos/throo.jpg',
-  'aki technology': '/logos/aki-technology.jpg',
-  'classic ryde': '/logos/classic-ryde.jpg',
-  'aventus ride': '/logos/aventus-ride.jpg',
-  'island city': '/logos/island-city.jpg',
-  'transittax': '/logos/transittax.jpg',
+  'uber': `${LOGO_BASE}/uber.jpg`,
+  'lyft': `${LOGO_BASE}/lyft.jpg`,
+  'eco ride': `${LOGO_BASE}/eco-ride.jpg`,
+  'throo': `${LOGO_BASE}/throo.jpg`,
+  'aki technology': `${LOGO_BASE}/aki-technology.jpg`,
+  'classic ryde': `${LOGO_BASE}/classic-ryde.jpg`,
+  'aventus ride': `${LOGO_BASE}/aventus-ride.jpg`,
+  'island city': `${LOGO_BASE}/island-city.jpg`,
+  'transittax': `${LOGO_BASE}/transittax.jpg`,
 }
 
 export function platformLogo(platform: string): string | undefined {
@@ -47,6 +52,7 @@ export function PlatformAvatar({ platform, size = 24, className = '' }: { platfo
           height={size}
           loading="lazy"
           decoding="async"
+          referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
           className="size-full object-contain"
         />

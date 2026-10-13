@@ -691,7 +691,8 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
   const winExp = projWin.reduce((s, p) => s + (Number(p.debit) || 0), 0)
   const winIncCount = projWin.filter((p) => Number(p.credit) > 0).length
   const winExpCount = projWin.filter((p) => Number(p.debit) > 0).length
-  const grandTotal = mainBal + otrosSum + winInc - winExp
+  // Balance proyectado = saldo de la cuenta bancaria + ingresos proyectados − gastos proyectados.
+  const grandTotal = mainBal + winInc - winExp
 
   // Movimientos del registro (solo banco principal), con balance corrido cronológico
   // Si se ocultan transfers, se excluyen por categoría (las reglas proyectadas no son transfers)
@@ -904,7 +905,7 @@ export default function ProjectionsPanel({ onOpenOtros }: { onOpenOtros?: () => 
         <Kpi icon={IBar} label="Projected income" value={money(winInc)} sub={`${winIncCount} items · today → Dec 31`} valueColor="text-[#16a34a]" accent="#16a34a" />
         <Kpi icon={ICart} label="Projected expenses" value={money(winExp)} sub={`${winExpCount} items · today → Dec 31`} valueColor="text-slate-800" accent="#f59e0b" />
         <Kpi icon={IDb} label="Bank balance · All accounts" value={money(bankTotal)} sub={`${accounts.length} accounts · today · Plaid`} valueColor="text-slate-800" accent="#3b82f6" />
-        <Kpi icon={IPct} label="Projected closing" value={money(grandTotal)} sub={otrosSum > 0 ? "Bank + other funds + projected income − projected expenses" : "Bank + projected income − projected expenses"} valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
+        <Kpi icon={IPct} label="Projected closing" value={money(grandTotal)} sub="Bank balance + projected income − projected expenses" valueColor={grandTotal < 0 ? 'text-red-600' : 'text-[#16a34a]'} accent="#8b5cf6" />
         <Kpi
           icon={IAlert}
           label="Lowest point"
